@@ -25,6 +25,9 @@ interface BackupManifest {
   created_at: string;
   total_files: number;
   total_size_bytes: number;
+  is_encrypted: boolean;
+  encryption_algorithm?: string;
+  salt_hex?: string;
   files: FileMetadata[];
 }
 
@@ -32,6 +35,7 @@ interface BackupResult {
   backup_id: string;
   manifest: BackupManifest;
   target_directory: string;
+  is_encrypted: boolean;
   elapsed_millis: number;
 }
 
@@ -103,6 +107,9 @@ window.addEventListener("DOMContentLoaded", () => {
   const folderMetaCard = document.getElementById("folder-meta-card") as HTMLElement | null;
   const backupResultBanner = document.getElementById("backup-result-banner") as HTMLElement | null;
 
+  const passphraseInput = document.getElementById("backup-passphrase") as HTMLInputElement | null;
+  const btnTogglePass = document.getElementById("btn-toggle-pass") as HTMLButtonElement | null;
+
   const metaName = document.getElementById("meta-name") as HTMLElement | null;
   const metaPath = document.getElementById("meta-path") as HTMLElement | null;
   const metaCount = document.getElementById("meta-count") as HTMLElement | null;
@@ -110,12 +117,25 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const resultElapsed = document.getElementById("result-elapsed") as HTMLElement | null;
   const resultId = document.getElementById("result-id") as HTMLElement | null;
+  const resultSecurity = document.getElementById("result-security") as HTMLElement | null;
   const resultFiles = document.getElementById("result-files") as HTMLElement | null;
   const resultSize = document.getElementById("result-size") as HTMLElement | null;
   const resultLocation = document.getElementById("result-location") as HTMLElement | null;
 
   const historyContainer = document.getElementById("history-container") as HTMLElement | null;
   const btnRefreshHistory = document.getElementById("btn-refresh-history") as HTMLButtonElement | null;
+
+  // Toggle passphrase visibility
+  btnTogglePass?.addEventListener("click", () => {
+    if (!passphraseInput) return;
+    if (passphraseInput.type === "password") {
+      passphraseInput.type = "text";
+      btnTogglePass.textContent = "🙈";
+    } else {
+      passphraseInput.type = "password";
+      btnTogglePass.textContent = "👁️";
+    }
+  });
 
   async function handleSelectFolder() {
     try {
@@ -193,12 +213,23 @@ window.addEventListener("DOMContentLoaded", () => {
     if (backupResultBanner) {
       backupResultBanner.style.display = "none";
     }
+    if (passphraseInput) {
+      passphraseInput.value = "";
+    }
   }
 
   async function handleStartBackup() {
     if (!currentSelectedPath) {
       alert("Please select a target folder first.");
       return;
+    }
+
+    const passphrase = passphraseInput?.value.trim();
+    if (!passphrase) {
+      const confirmPlain = confirm(
+        "No passphrase entered. Do you want to proceed with unencrypted backup? (Recommended: enter a passphrase for AES-256-GCM encryption)"
+      );
+      if (!confirmPlain) return;
     }
 
     if (btnStartBackup) btnStartBackup.disabled = true;
@@ -208,6 +239,7 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       const res = await invoke<CommandResult<BackupResult>>("start_local_backup", {
         sourcePath: currentSelectedPath,
+        passphrase: passphrase || null,
       });
 
       if (res.success && res.data) {
@@ -216,6 +248,12 @@ window.addEventListener("DOMContentLoaded", () => {
           backupResultBanner.style.display = "flex";
           if (resultElapsed) resultElapsed.textContent = `Completed in ${data.elapsed_millis}ms`;
           if (resultId) resultId.textContent = data.backup_id;
+          if (resultSecurity) {
+            resultSecurity.className = data.is_encrypted ? "badge-enc" : "badge-plain";
+            resultSecurity.textContent = data.is_encrypted
+              ? "AES-256-GCM (Encrypted)"
+              : "Plaintext (Unencrypted)";
+          }
           if (resultFiles) resultFiles.textContent = `${data.manifest.total_files} file(s)`;
           if (resultSize) resultSize.textContent = formatBytes(data.manifest.total_size_bytes);
           if (resultLocation) resultLocation.textContent = data.target_directory;
@@ -256,7 +294,7 @@ window.addEventListener("DOMContentLoaded", () => {
       historyContainer.innerHTML = `
         <div class="placeholder-box">
           <p>No backups recorded yet.</p>
-          <p style="font-size: 12px; margin-top: 6px;">Select a folder in Dashboard and click "Start Secure Backup".</p>
+          <p style="font-size: 12px; margin-top: 6px;">Select a folder in Dashboard, enter a passphrase, and click "Start Encrypted Backup".</p>
         </div>
       `;
       return;
@@ -264,25 +302,33 @@ window.addEventListener("DOMContentLoaded", () => {
 
     historyContainer.innerHTML = manifests
       .map((m) => {
+        const securityBadge = m.is_encrypted
+          ? `<span class="badge-enc">🔒 AES-256-GCM</span>`
+          : `<span class="badge-plain">Plaintext</span>`;
+
         const fileListHtml = m.files
           .slice(0, 5)
           .map(
             (f) => `
               <div class="history-file-line">
-                <span>${escapeHtml(f.relative_path)} (${formatBytes(f.size_bytes)})</span>
+                <span>${escapeHtml(f.relative_path)}${m.is_encrypted ? ".enc" : ""} (${formatBytes(f.size_bytes)})</span>
                 <span class="history-file-hash">SHA256: ${escapeHtml(f.sha256_hash.substring(0, 16))}...</span>
               </div>
             `
           )
           .join("");
 
-        const moreFilesCount = m.files.length > 5 ? `<div style="color: var(--text-dim); font-size: 10px;">+ ${m.files.length - 5} more files</div>` : "";
+        const moreFilesCount =
+          m.files.length > 5
+            ? `<div style="color: var(--text-dim); font-size: 10px;">+ ${m.files.length - 5} more files</div>`
+            : "";
 
         return `
           <div class="history-card">
             <div class="history-card-header">
               <div class="history-title-group">
                 <span class="history-source-name">${escapeHtml(m.source_name)}</span>
+                ${securityBadge}
                 <span class="version-tag">${escapeHtml(m.id)}</span>
               </div>
               <span class="history-date">${escapeHtml(formatDate(m.created_at))}</span>

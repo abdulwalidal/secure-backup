@@ -27,6 +27,10 @@ sha2 = "0.10"
 walkdir = "2"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+hex = "0.4"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

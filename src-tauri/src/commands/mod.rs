@@ -54,8 +54,12 @@ pub fn inspect_folder(path: String) -> CommandResult<FolderInfo> {
 }
 
 #[tauri::command]
-pub fn start_local_backup(source_path: String) -> CommandResult<BackupResult> {
-    match create_local_backup(&source_path) {
+pub fn start_local_backup(
+    source_path: String,
+    passphrase: Option<String>,
+) -> CommandResult<BackupResult> {
+    let pass_ref = passphrase.as_deref();
+    match create_local_backup(&source_path, pass_ref) {
         Ok(result) => CommandResult {
             success: true,
             data: Some(result),
@@ -81,6 +85,50 @@ pub fn get_backup_history() -> CommandResult<Vec<BackupManifest>> {
             success: false,
             data: None,
             error: Some(format!("Failed to retrieve backup history: {}", err)),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn test_encryption_roundtrip(sample_text: String, passphrase: String) -> CommandResult<String> {
+    use crate::encryption::{decrypt_bytes, derive_key, encrypt_bytes, generate_salt};
+
+    let salt = generate_salt();
+    let key = match derive_key(&passphrase, &salt) {
+        Ok(k) => k,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    let (ciphertext, nonce) = match encrypt_bytes(sample_text.as_bytes(), &key) {
+        Ok(res) => res,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    match decrypt_bytes(&ciphertext, &nonce, &key) {
+        Ok(dec) => {
+            let recovered = String::from_utf8_lossy(&dec).to_string();
+            CommandResult {
+                success: true,
+                data: Some(recovered),
+                error: None,
+            }
+        }
+        Err(e) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(e),
         },
     }
 }

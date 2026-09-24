@@ -18,6 +18,9 @@ pub struct BackupManifest {
     pub created_at: DateTime<Utc>,
     pub total_files: usize,
     pub total_size_bytes: u64,
+    pub is_encrypted: bool,
+    pub encryption_algorithm: Option<String>,
+    pub salt_hex: Option<String>,
     pub files: Vec<FileMetadata>,
 }
 
@@ -26,6 +29,7 @@ pub struct BackupResult {
     pub backup_id: String,
     pub manifest: BackupManifest,
     pub target_directory: String,
+    pub is_encrypted: bool,
     pub elapsed_millis: u128,
 }
 

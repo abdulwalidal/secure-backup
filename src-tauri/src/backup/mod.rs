@@ -1,3 +1,4 @@
+use crate::encryption::{derive_key, encrypt_file, generate_salt};
 use crate::hashing::hash_file;
 use crate::models::{BackupManifest, BackupResult, FileMetadata};
 use chrono::Utc;
@@ -58,7 +59,11 @@ pub fn scan_directory<P: AsRef<Path>>(source: P) -> io::Result<Vec<FileMetadata>
 }
 
 /// Creates a structured local backup for the given source directory.
-pub fn create_local_backup<P: AsRef<Path>>(source: P) -> io::Result<BackupResult> {
+/// If a passphrase is provided, all files are encrypted using AES-256-GCM with Argon2id.
+pub fn create_local_backup<P: AsRef<Path>>(
+    source: P,
+    passphrase: Option<&str>,
+) -> io::Result<BackupResult> {
     let start_time = Instant::now();
     let source_path = source.as_ref();
 
@@ -86,13 +91,37 @@ pub fn create_local_backup<P: AsRef<Path>>(source: P) -> io::Result<BackupResult
     let snapshot_data_dir = snapshot_dir.join("data");
     fs::create_dir_all(&snapshot_data_dir)?;
 
-    // 3. Copy files preserving relative structure
-    for file_meta in &files {
-        let dest_path = snapshot_data_dir.join(&file_meta.relative_path);
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)?;
+    let is_encrypted = passphrase.is_some() && !passphrase.unwrap().trim().is_empty();
+    let mut salt_hex = None;
+    let mut encryption_algorithm = None;
+
+    if is_encrypted {
+        let pw = passphrase.unwrap();
+        let salt = generate_salt();
+        let key =
+            derive_key(pw, &salt).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+        salt_hex = Some(hex::encode(salt));
+        encryption_algorithm = Some("AES-256-GCM / Argon2id".to_string());
+
+        // 3. Encrypt each file preserving relative structure into *.enc
+        for file_meta in &files {
+            let enc_rel_path = format!("{}.enc", file_meta.relative_path);
+            let dest_path = snapshot_data_dir.join(&enc_rel_path);
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            encrypt_file(&file_meta.absolute_path, &dest_path, &key, &salt)?;
         }
-        fs::copy(&file_meta.absolute_path, &dest_path)?;
+    } else {
+        // Plaintext copy
+        for file_meta in &files {
+            let dest_path = snapshot_data_dir.join(&file_meta.relative_path);
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&file_meta.absolute_path, &dest_path)?;
+        }
     }
 
     // 4. Construct and save the BackupManifest
@@ -103,6 +132,9 @@ pub fn create_local_backup<P: AsRef<Path>>(source: P) -> io::Result<BackupResult
         created_at: Utc::now(),
         total_files,
         total_size_bytes,
+        is_encrypted,
+        encryption_algorithm,
+        salt_hex,
         files,
     };
 
@@ -118,6 +150,7 @@ pub fn create_local_backup<P: AsRef<Path>>(source: P) -> io::Result<BackupResult
         backup_id,
         manifest,
         target_directory: snapshot_dir.to_string_lossy().to_string(),
+        is_encrypted,
         elapsed_millis,
     })
 }
@@ -144,7 +177,6 @@ pub fn list_local_backups() -> io::Result<Vec<BackupManifest>> {
         }
     }
 
-    // Sort newest first
     manifests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Ok(manifests)
 }
