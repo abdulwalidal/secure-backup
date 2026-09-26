@@ -213,7 +213,7 @@ The development of Secure Backup follows an incremental, verifiable roadmap:
   Streaming chunk-buffered SHA-256 fingerprinting for reliable change detection and data verification.
 - [x] **Phase 6: Client-Side Authenticated Encryption**  
   AES-256-GCM file encryption, Argon2id key derivation, random salts/nonces, and `.enc` locked containers.
-- [ ] **Phase 7: Embedded SQLite Database**  
+- [x] **Phase 7: Embedded SQLite Database**  
   Local `backup.db` integration using `rusqlite` for indexed snapshot records, file histories, and user settings.
 - [ ] **Phase 8: Cloud Storage Abstraction & First Provider**  
   Modular cloud interface supporting direct, zero-knowledge encrypted uploads to S3-compatible endpoints.

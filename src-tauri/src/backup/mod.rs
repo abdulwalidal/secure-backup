@@ -144,6 +144,11 @@ pub fn create_local_backup<P: AsRef<Path>>(
     let mut manifest_file = File::create(manifest_path)?;
     manifest_file.write_all(manifest_json.as_bytes())?;
 
+    // 5. Persist snapshot records in local SQLite database
+    if let Ok(mut conn) = crate::db::get_connection() {
+        let _ = crate::db::insert_snapshot(&mut conn, &manifest, "completed");
+    }
+
     let elapsed_millis = start_time.elapsed().as_millis();
 
     Ok(BackupResult {

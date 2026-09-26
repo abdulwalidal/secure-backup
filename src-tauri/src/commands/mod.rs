@@ -132,3 +132,86 @@ pub fn test_encryption_roundtrip(sample_text: String, passphrase: String) -> Com
         },
     }
 }
+
+#[tauri::command]
+pub fn get_database_snapshots() -> CommandResult<Vec<crate::models::SnapshotRecord>> {
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    match crate::db::get_snapshots(&conn) {
+        Ok(snapshots) => CommandResult {
+            success: true,
+            data: Some(snapshots),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(e),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn get_database_snapshot_files(
+    snapshot_id: String,
+) -> CommandResult<Vec<crate::models::FileRecord>> {
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    match crate::db::get_snapshot_files(&conn, &snapshot_id) {
+        Ok(files) => CommandResult {
+            success: true,
+            data: Some(files),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(e),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn get_database_stats() -> CommandResult<crate::models::DbStats> {
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    match crate::db::get_db_stats(&conn) {
+        Ok(stats) => CommandResult {
+            success: true,
+            data: Some(stats),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(e),
+        },
+    }
+}

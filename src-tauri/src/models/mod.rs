@@ -49,3 +49,35 @@ pub struct CommandResult<T> {
     pub data: Option<T>,
     pub error: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotRecord {
+    pub id: String,
+    pub source_path: String,
+    pub source_name: String,
+    pub created_at: String,
+    pub total_files: usize,
+    pub total_size_bytes: u64,
+    pub is_encrypted: bool,
+    pub encryption_algorithm: Option<String>,
+    pub salt_hex: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileRecord {
+    pub id: Option<i64>,
+    pub snapshot_id: String,
+    pub relative_path: String,
+    pub size_bytes: u64,
+    pub sha256_hash: String,
+    pub modified_timestamp: u64,
+    pub stored_filename: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbStats {
+    pub total_snapshots: usize,
+    pub total_files_indexed: usize,
+    pub total_bytes_backed_up: u64,
+}
