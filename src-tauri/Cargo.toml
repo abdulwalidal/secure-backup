@@ -32,6 +32,11 @@ argon2 = "0.5"
 rand = "0.8"
 hex = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+url = "2"
+tiny_http = "0.12"
+base64 = "0.22"
+open = "5"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

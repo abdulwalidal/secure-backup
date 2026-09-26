@@ -215,8 +215,8 @@ The development of Secure Backup follows an incremental, verifiable roadmap:
   AES-256-GCM file encryption, Argon2id key derivation, random salts/nonces, and `.enc` locked containers.
 - [x] **Phase 7: Embedded SQLite Database**  
   Local `backup.db` integration using `rusqlite` for indexed snapshot records, file histories, and user settings.
-- [ ] **Phase 8: Cloud Storage Abstraction & First Provider**  
-  Modular cloud interface supporting direct, zero-knowledge encrypted uploads to S3-compatible endpoints.
+- [ ] **Phase 8: Cloud Storage Abstraction & Google Drive**  
+  Modular `CloudProvider` trait, Google Drive OAuth 2.0 PKCE flow, and encrypted remote upload engine.
 - [ ] **Phase 9: Post-Upload Verification**  
   Automated validation comparing cloud-stored hashes and payload sizes against local manifests.
 - [ ] **Phase 10: Complete File Restoration Engine**  

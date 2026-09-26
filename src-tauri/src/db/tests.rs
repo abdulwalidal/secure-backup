@@ -119,3 +119,27 @@ fn test_database_stats() {
         m1.total_size_bytes + m2.total_size_bytes
     );
 }
+
+#[test]
+fn test_settings_storage() {
+    let conn = setup_test_db();
+
+    // Verify initial missing
+    let val = get_setting(&conn, "gdrive_token").unwrap();
+    assert_eq!(val, None);
+
+    // Insert setting
+    set_setting(&conn, "gdrive_token", "sample_access_token_123").unwrap();
+    let val = get_setting(&conn, "gdrive_token").unwrap();
+    assert_eq!(val, Some("sample_access_token_123".to_string()));
+
+    // Update setting
+    set_setting(&conn, "gdrive_token", "updated_token_456").unwrap();
+    let val = get_setting(&conn, "gdrive_token").unwrap();
+    assert_eq!(val, Some("updated_token_456".to_string()));
+
+    // Delete setting
+    delete_setting(&conn, "gdrive_token").unwrap();
+    let val = get_setting(&conn, "gdrive_token").unwrap();
+    assert_eq!(val, None);
+}

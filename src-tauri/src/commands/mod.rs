@@ -215,3 +215,89 @@ pub fn get_database_stats() -> CommandResult<crate::models::DbStats> {
         },
     }
 }
+
+#[tauri::command]
+pub fn get_cloud_providers() -> CommandResult<Vec<crate::cloud::CloudConnectionStatus>> {
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    let providers = crate::cloud::get_all_provider_statuses(&conn);
+    CommandResult {
+        success: true,
+        data: Some(providers),
+        error: None,
+    }
+}
+
+#[tauri::command]
+pub fn connect_google_drive() -> CommandResult<crate::cloud::CloudConnectionStatus> {
+    let mut conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    match crate::cloud::gdrive::GoogleDriveProvider::perform_oauth_flow(&mut conn) {
+        Ok(status) => CommandResult {
+            success: true,
+            data: Some(status),
+            error: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(e),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn disconnect_cloud_provider(provider_type: String) -> CommandResult<bool> {
+    use crate::cloud::CloudProvider;
+
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+        let gdrive = crate::cloud::gdrive::GoogleDriveProvider::default();
+        match gdrive.disconnect(&conn) {
+            Ok(_) => CommandResult {
+                success: true,
+                data: Some(true),
+                error: None,
+            },
+            Err(e) => CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            },
+        }
+    } else {
+        CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Unsupported provider type: {}", provider_type)),
+        }
+    }
+}

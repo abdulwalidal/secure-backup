@@ -252,5 +252,48 @@ pub fn get_db_stats(conn: &Connection) -> Result<DbStats, String> {
     })
 }
 
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        r#"
+        INSERT INTO app_settings (key, value, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        "#,
+        params![key, value, now],
+    )
+    .map_err(|e| format!("Failed to set setting '{}': {}", key, e))?;
+
+    Ok(())
+}
+
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT value FROM app_settings WHERE key = ?1")
+        .map_err(|e| format!("Failed to prepare get_setting query: {}", e))?;
+
+    let mut rows = stmt
+        .query(params![key])
+        .map_err(|e| format!("Failed to query setting '{}': {}", key, e))?;
+
+    if let Some(row) = rows
+        .next()
+        .map_err(|e| format!("Error fetching setting: {}", e))?
+    {
+        let val: String = row
+            .get(0)
+            .map_err(|e| format!("Error reading setting value: {}", e))?;
+        Ok(Some(val))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn delete_setting(conn: &Connection, key: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM app_settings WHERE key = ?1", params![key])
+        .map_err(|e| format!("Failed to delete setting '{}': {}", key, e))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

@@ -45,6 +45,16 @@ interface CommandResult<T> {
   error?: string;
 }
 
+interface CloudConnectionStatus {
+  provider_type: string;
+  name: string;
+  is_connected: boolean;
+  is_supported: boolean;
+  account_email?: string;
+  storage_used_bytes?: number;
+  storage_total_bytes?: number;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -94,6 +104,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (tabId === "backups") {
         loadBackupHistory();
+      } else if (tabId === "settings") {
+        loadCloudProviders();
       }
     });
   });
@@ -130,10 +142,20 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!passphraseInput) return;
     if (passphraseInput.type === "password") {
       passphraseInput.type = "text";
-      btnTogglePass.textContent = "🙈";
+      btnTogglePass.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+          <line x1="1" y1="1" x2="23" y2="23"/>
+        </svg>
+      `;
     } else {
       passphraseInput.type = "password";
-      btnTogglePass.textContent = "👁️";
+      btnTogglePass.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      `;
     }
   });
 
@@ -303,7 +325,7 @@ window.addEventListener("DOMContentLoaded", () => {
     historyContainer.innerHTML = manifests
       .map((m) => {
         const securityBadge = m.is_encrypted
-          ? `<span class="badge-enc">🔒 AES-256-GCM</span>`
+          ? `<span class="badge-enc">AES-256-GCM</span>`
           : `<span class="badge-plain">Plaintext</span>`;
 
         const fileListHtml = m.files
@@ -346,6 +368,128 @@ window.addEventListener("DOMContentLoaded", () => {
         `;
       })
       .join("");
+  }
+
+  // Cloud Providers Handling
+  const cloudProvidersList = document.getElementById("cloud-providers-list");
+
+  async function loadCloudProviders() {
+    if (!cloudProvidersList) return;
+    cloudProvidersList.innerHTML = '<div class="placeholder-box">Loading cloud providers...</div>';
+
+    try {
+      const res = await invoke<CommandResult<CloudConnectionStatus[]>>("get_cloud_providers");
+      if (res.success && res.data) {
+        renderCloudProviders(res.data);
+      } else {
+        cloudProvidersList.innerHTML = `<div class="placeholder-box">${escapeHtml(res.error || "Failed to load cloud providers.")}</div>`;
+      }
+    } catch (err) {
+      console.error("Error loading cloud providers:", err);
+      cloudProvidersList.innerHTML = '<div class="placeholder-box">Failed to load cloud provider status.</div>';
+    }
+  }
+
+  function renderCloudProviders(providers: CloudConnectionStatus[]) {
+    if (!cloudProvidersList) return;
+
+    cloudProvidersList.innerHTML = providers
+      .map((p) => {
+        let statusBadge = "";
+        let actionBtn = "";
+        let bodyText = "";
+
+        if (!p.is_supported) {
+          statusBadge = `<span class="cloud-status-badge roadmap">Roadmap</span>`;
+          bodyText = `<span>Support coming in future milestone.</span>`;
+          actionBtn = `<button class="btn btn-secondary btn-sm" disabled style="opacity: 0.5;">Coming Soon</button>`;
+        } else if (p.is_connected) {
+          statusBadge = `<span class="cloud-status-badge connected">Connected</span>`;
+          bodyText = `<div>Connected: <strong class="cloud-account-email">${escapeHtml(p.account_email || "Active")}</strong></div>`;
+          actionBtn = `<button class="btn btn-secondary btn-sm btn-disconnect-cloud" data-provider="${escapeHtml(p.provider_type)}">Disconnect</button>`;
+        } else {
+          statusBadge = `<span class="cloud-status-badge disconnected">Not Connected</span>`;
+          bodyText = `<span>Zero-knowledge client-side encrypted sync.</span>`;
+          actionBtn = `<button class="btn btn-primary btn-sm btn-connect-cloud" data-provider="${escapeHtml(p.provider_type)}">Connect</button>`;
+        }
+
+        const quotaDisplay = p.storage_total_bytes
+          ? `<span class="cloud-quota-badge">${formatBytes(p.storage_total_bytes)} Baseline</span>`
+          : "";
+
+        return `
+          <div class="cloud-card ${!p.is_supported ? "disabled" : ""}">
+            <div class="cloud-header">
+              <div class="cloud-title-group">
+                <span class="cloud-name">${escapeHtml(p.name)}</span>
+                ${quotaDisplay}
+              </div>
+              ${statusBadge}
+            </div>
+            <div class="cloud-body">
+              ${bodyText}
+            </div>
+            <div class="cloud-actions">
+              ${actionBtn}
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    // Attach button listeners
+    cloudProvidersList.querySelectorAll<HTMLButtonElement>(".btn-connect-cloud").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const provider = btn.getAttribute("data-provider");
+        if (provider === "google_drive" || provider === "GoogleDrive") {
+          btn.disabled = true;
+          btn.textContent = "Connecting (Browser)...";
+          try {
+            const res = await invoke<CommandResult<CloudConnectionStatus>>("connect_google_drive");
+            if (res.success && res.data) {
+              await loadCloudProviders();
+            } else {
+              alert(res.error || "Google Drive connection failed.");
+              btn.disabled = false;
+              btn.textContent = "Connect";
+            }
+          } catch (e) {
+            console.error("Connection error:", e);
+            alert("Failed to complete Google Drive authentication.");
+            btn.disabled = false;
+            btn.textContent = "Connect";
+          }
+        }
+      });
+    });
+
+    cloudProvidersList.querySelectorAll<HTMLButtonElement>(".btn-disconnect-cloud").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const provider = btn.getAttribute("data-provider");
+        if (!provider) return;
+
+        if (confirm("Disconnect this cloud provider? Uploaded backups on the cloud will not be deleted.")) {
+          btn.disabled = true;
+          btn.textContent = "Disconnecting...";
+          try {
+            const res = await invoke<CommandResult<boolean>>("disconnect_cloud_provider", {
+              providerType: provider,
+            });
+            if (res.success) {
+              await loadCloudProviders();
+            } else {
+              alert(res.error || "Failed to disconnect.");
+              btn.disabled = false;
+              btn.textContent = "Disconnect";
+            }
+          } catch (e) {
+            console.error("Disconnect error:", e);
+            btn.disabled = false;
+            btn.textContent = "Disconnect";
+          }
+        }
+      });
+    });
   }
 
   btnSelectFolder?.addEventListener("click", handleSelectFolder);
