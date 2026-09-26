@@ -46,7 +46,7 @@ fn sample_manifest(id: &str, file_count: usize, encrypted: bool) -> BackupManife
 #[test]
 fn test_database_initialization() {
     let conn = setup_test_db();
-    
+
     // Verify tables exist
     let count: i64 = conn
         .query_row(
@@ -74,7 +74,8 @@ fn test_insert_and_query_snapshot() {
     assert!(snapshots[0].is_encrypted);
     assert_eq!(snapshots[0].status, "completed");
 
-    let files = get_snapshot_files(&conn, "snapshot-001").expect("get_snapshot_files should succeed");
+    let files =
+        get_snapshot_files(&conn, "snapshot-001").expect("get_snapshot_files should succeed");
     assert_eq!(files.len(), 3);
     assert_eq!(files[0].relative_path, "documents/report_0.pdf");
     assert_eq!(files[0].stored_filename, "report_0.pdf.enc");
@@ -94,7 +95,11 @@ fn test_cascade_deletion() {
         .unwrap();
 
     let files_after = get_snapshot_files(&conn, "snapshot-cascade").unwrap();
-    assert_eq!(files_after.len(), 0, "Files should be deleted when snapshot is removed");
+    assert_eq!(
+        files_after.len(),
+        0,
+        "Files should be deleted when snapshot is removed"
+    );
 }
 
 #[test]
@@ -109,5 +114,8 @@ fn test_database_stats() {
     let stats = get_db_stats(&conn).expect("get_db_stats should succeed");
     assert_eq!(stats.total_snapshots, 2);
     assert_eq!(stats.total_files_indexed, 5);
-    assert_eq!(stats.total_bytes_backed_up, m1.total_size_bytes + m2.total_size_bytes);
+    assert_eq!(
+        stats.total_bytes_backed_up,
+        m1.total_size_bytes + m2.total_size_bytes
+    );
 }

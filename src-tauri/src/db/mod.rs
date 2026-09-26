@@ -137,7 +137,12 @@ pub fn insert_snapshot(
                 file.modified_timestamp as i64,
                 stored_filename
             ])
-            .map_err(|e| format!("Failed to insert file entry {:?}: {}", file.relative_path, e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to insert file entry {:?}: {}",
+                    file.relative_path, e
+                )
+            })?;
         }
     }
 
