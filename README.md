@@ -5,39 +5,117 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db.svg)](https://tauri.app/)
 
-Secure Backup is a lightweight, zero-knowledge desktop backup application developed with Tauri 2, Rust, and TypeScript. It is designed to provide secure, verified, and client-side encrypted backups with minimal resource consumption.
+Secure Backup is a lightweight, zero-knowledge desktop backup application built with Tauri 2, Rust, and TypeScript. It is designed to provide end-to-end client-side encryption, integrity-verified data snapshots, and seamless restoration across local and cloud environments while maintaining complete user privacy.
 
 ---
 
-## Key Features
+## Table of Contents
 
-- **Client-Side Authenticated Encryption:** Employs AES-256-GCM (Authenticated Encryption with Associated Data) paired with Argon2id password-based key derivation. Plaintext files never leave the local system.
-- **Cryptographic Integrity Verification:** Computes chunked, streaming SHA-256 checksums to verify file contents and detect changes.
-- **Lightweight Desktop Architecture:** Built using Tauri 2 and WebKit2GTK on Linux, avoiding the runtime overhead and memory footprint of Electron.
-- **Structured Snapshot Engine:** Preserves directory hierarchies, file metadata, and timestamps in structured archives.
-- **Privacy by Design:** Zero analytics, telemetry, user tracking, or unauthorized outbound network connections.
+- [Core Principles](#core-principles)
+- [How It Works](#how-it-works)
+- [Technical Architecture](#technical-architecture)
+- [Cryptographic Specifications](#cryptographic-specifications)
+- [Repository Structure](#repository-structure)
+- [Prerequisites & Build Guide](#prerequisites--build-guide)
+- [End-to-End Roadmap](#end-to-end-roadmap)
+- [Contributing](#contributing)
+- [Security Disclosure](#security-disclosure)
+- [License](#license)
 
 ---
 
-## Technical Overview
+## Core Principles
 
-The application follows a strict separation of concerns between presentation and system operations:
+1. **Zero-Knowledge by Default:** Files are encrypted on the client device before touching local disk storage or leaving the host machine over the network. Plaintext files and master passwords are never transmitted, logged, or exposed to third-party providers.
+2. **Deterministic Cryptographic Verification:** Every file is hashed using streaming SHA-256 to ensure byte-level integrity. Decryption verifies authenticated AEAD tags; modified, corrupted, or truncated files are rejected immediately.
+3. **Minimal Resource Utilization:** Engineered in Rust with a native WebKit2GTK frontend via Tauri 2. Operates without the heavy memory overhead, background battery drain, or large runtime bundles common to Electron applications.
+4. **Complete Privacy:** Contains zero analytics, diagnostic telemetry, third-party tracking libraries, or unsolicited external connections. Network operations only occur during user-initiated backup or restoration operations.
+
+---
+
+## How It Works
+
+### The Backup Pipeline
 
 ```text
 User selects directory
           |
-Scan filesystem & collect metadata
+Recursive filesystem scan (walkdir)
           |
-Compute streaming SHA-256 checksums
+Streamed SHA-256 integrity calculation
           |
-Derive 256-bit key via Argon2id (salt + passphrase)
+Passphrase input -> Argon2id key derivation (random salt)
           |
-Encrypt files via AES-256-GCM (unique nonces)
+AES-256-GCM authenticated encryption (unique 12-byte nonces)
           |
-Write encrypted payload (.enc) and manifest to storage
+Write locked binary archive (.enc) & manifest to local storage
           |
-Record snapshot in local database
+[Upcoming] Upload ciphertext bundle to encrypted cloud storage
+          |
+[Upcoming] Index snapshot metadata in local SQLite database
 ```
+
+### The Restoration Pipeline
+
+```text
+User selects historical snapshot
+          |
+[Upcoming] Download ciphertext archive from cloud / local storage
+          |
+Input master passphrase -> Argon2id key derivation
+          |
+Verify container headers, salt, and AES-GCM authentication tags
+          |
+Decrypt files back to original or chosen destination directory
+          |
+Re-verify recovered file SHA-256 hashes against snapshot manifest
+```
+
+---
+
+## Technical Architecture
+
+Secure Backup maintains a strict separation of concerns across presentation and native system operations:
+
+```text
++-------------------------------------------------------------+
+|                      Presentation Layer                     |
+|            Vanilla TypeScript / HTML5 / Modern CSS          |
+|  - Dashboard, Target Selection, Passphrase Input, History   |
++------------------------------+------------------------------+
+                               |
+                   Tauri 2 IPC Command Boundary
+                               |
++------------------------------v------------------------------+
+|                       Rust Core Engine                      |
+|                                                             |
+|  +---------------------+  +-------------------------------+ |
+|  |    Backup Engine    |  |       Crypto Engine           | |
+|  | - Directory scanner |  | - AES-256-GCM (AEAD)          | |
+|  | - Manifest builder  |  | - Argon2id Key Derivation     | |
+|  | - Archive packager  |  | - Streaming SHA-256 Hasher    | |
+|  +---------------------+  +-------------------------------+ |
+|                                                             |
+|  +---------------------+  +-------------------------------+ |
+|  |    Database Layer   |  |        Cloud Layer            | |
+|  | - SQLite (rusqlite) |  | - Cloud provider abstraction  | |
+|  | - Metadata & states |  | - S3 / B2 storage connectors  | |
+|  +---------------------+  +-------------------------------+ |
++-------------------------------------------------------------+
+```
+
+---
+
+## Cryptographic Specifications
+
+Secure Backup adheres strictly to modern, audited cryptographic standards:
+
+| Component | Standard / Algorithm | Parameters / Description |
+| --------- | -------------------- | ------------------------ |
+| Key Derivation | Argon2id (v0x13) | 19 MiB memory cost, 2 iterations, 1 lane, 16-byte random salt from OS CSPRNG (`getrandom`). Resistant to GPU/ASIC brute-force attacks. |
+| Authenticated Cipher | AES-256-GCM | 256-bit derived key, unique 12-byte random nonce per file, 16-byte Poly1305 authentication tag. |
+| Integrity Hashing | SHA-256 | Streaming 64 KB chunk buffered digest calculation for low memory consumption across files of any size. |
+| Container Format | Custom Binary Header | `[ MAGIC: SECBKP01 (8B) \| Salt (16B) \| Nonce (12B) \| Ciphertext + Tag ]` |
 
 ---
 
@@ -45,38 +123,37 @@ Record snapshot in local database
 
 ```text
 secure-backup/
-├── src/                          # Frontend presentation layer (TypeScript, HTML, CSS)
+├── src/                          # Frontend presentation layer
 │   ├── index.html                # Application shell and view layouts
-│   ├── styles.css                # Application styles and theme definitions
-│   └── main.ts                   # Tauri IPC event binding and view logic
-├── src-tauri/                    # Core engine (Rust)
+│   ├── styles.css                # Dark-themed desktop UI styles
+│   └── main.ts                   # Event bindings, IPC invocations, and UI reactivity
+├── src-tauri/                    # Core engine implementation in Rust
 │   ├── src/
-│   │   ├── backup/               # Filesystem traversal and snapshot packaging
-│   │   ├── commands/             # Tauri IPC command definitions
+│   │   ├── backup/               # Filesystem traversal and snapshot creation
+│   │   ├── commands/             # Tauri IPC command definitions and bridges
 │   │   ├── encryption/           # AES-256-GCM and Argon2id cryptographic operations
 │   │   ├── hashing/              # Streaming SHA-256 file checksums
-│   │   ├── models/               # Domain models and serializable structures
-│   │   ├── lib.rs                # Application initialization and plugin registration
+│   │   ├── models/               # Domain structures, manifests, and command results
+│   │   ├── lib.rs                # Application initialization and plugin wiring
 │   │   └── main.rs               # Binary entry point
-│   ├── capabilities/             # Tauri 2 security capability definitions
-│   ├── Cargo.toml                # Rust dependencies and compiler configurations
-│   └── tauri.conf.json           # Window configuration and runtime settings
-├── .github/                      # CI workflows and issue templates
-├── ARCHITECTURE.md               # Detailed system and security specifications
-├── CONTRIBUTING.md               # Development workflow and contribution guidelines
-├── SECURITY.md                   # Vulnerability reporting and security policies
+│   ├── capabilities/             # Tauri 2 least-privilege permission definitions
+│   ├── Cargo.toml                # Rust dependencies and compiler optimization profiles
+│   └── tauri.conf.json           # Window properties and runtime configuration
+├── .github/                      # CI workflows, PR templates, and issue forms
+├── ARCHITECTURE.md               # Technical design and security threat model
+├── CONTRIBUTING.md               # Development workflow, conventions, and guidelines
+├── CODE_OF_CONDUCT.md           # Professional community standards
+├── SECURITY.md                   # Vulnerability disclosure policy
 └── LICENSE                       # MIT License
 ```
 
 ---
 
-## Getting Started
+## Prerequisites & Build Guide
 
-### System Requirements
+### System Requirements (Linux / Ubuntu / Debian)
 
-#### Linux (Ubuntu / Debian)
-
-Install the necessary compilation tools and WebKit2GTK development libraries:
+Install the required build dependencies and WebKit2GTK libraries:
 
 ```bash
 sudo apt update
@@ -84,13 +161,13 @@ sudo apt install -y build-essential curl wget file libssl-dev libgtk-3-dev \
     libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev
 ```
 
-#### Toolchain
+### Development Environment
 
 - **Node.js:** v18.0.0 or higher
 - **npm:** v9.0.0 or higher
-- **Rust:** v1.78.0 or higher (stable toolchain)
+- **Rust:** v1.78.0 or higher
 
-### Installation & Build
+### Steps to Run
 
 1. Clone the repository:
    ```bash
@@ -98,7 +175,7 @@ sudo apt install -y build-essential curl wget file libssl-dev libgtk-3-dev \
    cd secure-backup
    ```
 
-2. Install frontend dependencies:
+2. Install dependencies:
    ```bash
    npm install
    ```
@@ -108,53 +185,63 @@ sudo apt install -y build-essential curl wget file libssl-dev libgtk-3-dev \
    cargo test --manifest-path src-tauri/Cargo.toml
    ```
 
-4. Launch the desktop application in development mode:
+4. Launch the desktop application:
    ```bash
    npm run tauri dev
    ```
 
-5. Build the release binary:
+5. Compile a production release bundle:
    ```bash
    npm run tauri build
    ```
 
 ---
 
-## Project Roadmap
+## End-to-End Roadmap
 
-- [x] **Milestone 1: Desktop Shell & Native Integration**  
-  Tauri 2 foundation, native GTK file selection, and IPC communication.
-- [x] **Milestone 2: Hashing & Local Backup Engine**  
-  Recursive directory scanning, streaming SHA-256 file hashing, and manifest generation.
-- [x] **Milestone 3: Client-Side Authenticated Encryption**  
-  AES-256-GCM authenticated encryption, Argon2id key derivation, and ciphertext verification.
-- [ ] **Milestone 4: SQLite Metadata Database**  
-  Embedded SQLite engine for queryable backup history, file indexing, and configuration persistence.
-- [ ] **Milestone 5: Cloud Storage Integration**  
-  Abstract provider interface and integration with an S3-compatible cloud storage backend.
-- [ ] **Milestone 6: File Restoration Engine**  
-  End-to-end verification, download, decryption, and file recovery.
-- [ ] **Milestone 7: Incremental Backups**  
-  Checksum-based change detection to back up only modified or newly created files.
-- [ ] **Milestone 8: Automated Scheduling**  
-  Configurable background backup scheduler.
+The development of Secure Backup follows an incremental, verifiable roadmap:
+
+- [x] **Phase 1: Foundation & Desktop Shell**  
+  Tauri 2 integration, WebKit2GTK backend, window management, and base application shell.
+- [x] **Phase 2: UI Architecture**  
+  Sidebar navigation (Dashboard, Backups, Restore, Settings), dark desktop theme, and reactive state.
+- [x] **Phase 3: Directory Selection**  
+  Native GTK folder picker integration via `@tauri-apps/plugin-dialog` with IPC path validation.
+- [x] **Phase 4: Local Backup Engine**  
+  Recursive directory traversal with `walkdir`, metadata gathering, and structured snapshot packaging.
+- [x] **Phase 5: Cryptographic Hashing**  
+  Streaming chunk-buffered SHA-256 fingerprinting for reliable change detection and data verification.
+- [x] **Phase 6: Client-Side Authenticated Encryption**  
+  AES-256-GCM file encryption, Argon2id key derivation, random salts/nonces, and `.enc` locked containers.
+- [ ] **Phase 7: Embedded SQLite Database**  
+  Local `backup.db` integration using `rusqlite` for indexed snapshot records, file histories, and user settings.
+- [ ] **Phase 8: Cloud Storage Abstraction & First Provider**  
+  Modular cloud interface supporting direct, zero-knowledge encrypted uploads to S3-compatible endpoints.
+- [ ] **Phase 9: Post-Upload Verification**  
+  Automated validation comparing cloud-stored hashes and payload sizes against local manifests.
+- [ ] **Phase 10: Complete File Restoration Engine**  
+  Full download, decryption, tag verification, and file recovery workflow back to host filesystems.
+- [ ] **Phase 11: Hash-Based Incremental Backups**  
+  Intelligent change detection comparing current hashes to prior snapshots, uploading only modified files.
+- [ ] **Phase 12: Automated Background Scheduling**  
+  Configurable background scheduler for recurring and automated backups.
 
 ---
 
-## Contribution Guidelines
+## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code standards, branching conventions, and pull request procedures.
+We welcome community contributions. Please review [CONTRIBUTING.md](CONTRIBUTING.md) for details on our trunk-based development workflow, code standards, and pull request checklist.
 
-Direct pushes to the `main` branch are restricted. All proposed changes must be submitted through a pull request and pass all continuous integration checks.
+Direct pushes to `main` are restricted. All proposed modifications must be submitted via a pull request and pass all continuous integration tests.
 
 ---
 
-## Security
+## Security Disclosure
 
-Please report vulnerabilities responsibly. Refer to [SECURITY.md](SECURITY.md) for our disclosure policy and reporting process.
+Security is fundamental to Secure Backup. If you identify a vulnerability, please disclose it responsibly according to our [Security Policy](SECURITY.md). Do not submit public issues for security vulnerabilities.
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is open-source software licensed under the [MIT License](LICENSE).
