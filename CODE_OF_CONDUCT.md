@@ -2,47 +2,45 @@
 
 ## Purpose
 
-We as maintainers, contributors, and leaders of the Secure Backup project pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
+We as maintainers, contributors, and leaders of the Secure Backup project pledge to make participation in our community a professional, respectful, and constructive experience for everyone, regardless of background, level of experience, education, nationality, personal appearance, race, religion, or language.
 
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
+We pledge to act and interact in ways that contribute to an open, welcoming, diverse, and productive environment for all participants.
 
 ---
 
 ## Standards of Conduct
 
-Examples of behavior that contributes to a positive environment include:
+Examples of behavior that contributes to a positive and productive environment include:
 
-- Demonstrating professional courtesy, empathy, and constructive communication.
-- Respecting differing viewpoints, opinions, and constructive critique.
-- Gracefully accepting constructive feedback and acknowledging mistakes.
-- Focusing on what is best for the project and the broader user community.
+- Demonstrating professional courtesy, patience, and constructive communication.
+- Respecting differing technical viewpoints, architectural opinions, and constructive critique.
+- Gracefully accepting constructive feedback and acknowledging technical mistakes.
+- Focusing on what is best for the project, code quality, and the broader user community.
 
 Examples of unacceptable behavior include:
 
-- The use of sexualized language or imagery, and unwelcome sexual attention or advances.
-- Trolling, insulting, derogatory comments, and personal or political attacks.
-- Public or private harassment of any kind.
-- Publishing others' private information, such as physical or electronic addresses, without explicit consent.
-- Conduct that could reasonably be considered inappropriate or unprofessional.
+- Offensive, derogatory, or discriminatory language and comments.
+- Personal, ad hominem, or political attacks.
+- Public or private harassment, intimidation, or disruptive behavior.
+- Publishing others' private information, such as personal contact details, without explicit consent.
+- Any conduct that could reasonably be considered unprofessional, inappropriate, or harmful to collaborative engineering.
 
 ---
 
 ## Enforcement Responsibilities
 
-Project maintainers are responsible for clarifying and enforcing acceptable standards of behavior and will take appropriate corrective action in response to any behavior deemed inappropriate, threatening, offensive, or harmful.
+Project maintainers are responsible for clarifying and enforcing acceptable standards of professional conduct and will take appropriate corrective action in response to any behavior deemed inappropriate, disruptive, or harmful to the community.
 
-Maintainers have the right and responsibility to remove, edit, or reject comments, commits, code, pull requests, and issues that are not aligned with this Code of Conduct.
+Maintainers have the right and responsibility to remove, edit, or reject comments, commits, code, pull requests, and issues that violate these standards.
 
 ---
 
 ## Reporting Issues
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project maintainer via the contact information on their GitHub profile. All complaints will be reviewed and investigated promptly and fairly.
-
-All project maintainers are obligated to respect the privacy and security of the reporter of any incident.
+Instances of abusive, disrespectful, or otherwise unacceptable behavior may be reported privately to the project maintainer via the contact information on their GitHub profile. All reports will be reviewed and addressed promptly, fairly, and with strict confidentiality.
 
 ---
 
 ## Attribution
 
-This Code of Conduct is adapted from the Contributor Covenant, version 2.1, available at https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
+This Code of Conduct establishes professional community standards focused on respectful engineering collaboration.
