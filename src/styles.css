@@ -433,9 +433,18 @@ body {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 4px;
-  font-size: 14px;
-  box-shadow: none;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.btn-icon:hover {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .passphrase-hint {
