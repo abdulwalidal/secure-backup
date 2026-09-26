@@ -121,6 +121,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const passphraseInput = document.getElementById("backup-passphrase") as HTMLInputElement | null;
   const btnTogglePass = document.getElementById("btn-toggle-pass") as HTMLButtonElement | null;
+  const btnGeneratePass = document.getElementById("btn-generate-pass") as HTMLButtonElement | null;
+  const btnCopyPass = document.getElementById("btn-copy-pass") as HTMLButtonElement | null;
+  const copyTooltip = document.getElementById("copy-tooltip") as HTMLElement | null;
 
   const metaName = document.getElementById("meta-name") as HTMLElement | null;
   const metaPath = document.getElementById("meta-path") as HTMLElement | null;
@@ -137,27 +140,115 @@ window.addEventListener("DOMContentLoaded", () => {
   const historyContainer = document.getElementById("history-container") as HTMLElement | null;
   const btnRefreshHistory = document.getElementById("btn-refresh-history") as HTMLButtonElement | null;
 
+  // --- Passphrase visibility, generation & clipboard helpers ---
+
+  const EYE_OPEN_SVG = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  `;
+
+  const EYE_OFF_SVG = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+  `;
+
+  function setPassphraseVisible(visible: boolean) {
+    if (!passphraseInput) return;
+    passphraseInput.type = visible ? "text" : "password";
+    if (btnTogglePass) btnTogglePass.innerHTML = visible ? EYE_OFF_SVG : EYE_OPEN_SVG;
+  }
+
   // Toggle passphrase visibility
   btnTogglePass?.addEventListener("click", () => {
     if (!passphraseInput) return;
-    if (passphraseInput.type === "password") {
-      passphraseInput.type = "text";
-      btnTogglePass.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-          <line x1="1" y1="1" x2="23" y2="23"/>
-        </svg>
-      `;
-    } else {
-      passphraseInput.type = "password";
-      btnTogglePass.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-          <circle cx="12" cy="12" r="3"/>
-        </svg>
-      `;
-    }
+    setPassphraseVisible(passphraseInput.type === "password");
   });
+
+  const PASSPHRASE_BYTES = 32;
+
+  // Generates a 256-bit high-entropy passphrase as an unpadded base64url string.
+  // Uses the platform CSPRNG (Web Crypto); no secret is ever persisted.
+  function generateSecurePassphrase(): string {
+    const bytes = new Uint8Array(PASSPHRASE_BYTES);
+    crypto.getRandomValues(bytes);
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+
+  let copyTooltipTimer: number | undefined;
+
+  function showCopyTooltip(message: string, isError = false) {
+    if (!copyTooltip) return;
+    copyTooltip.textContent = message;
+    copyTooltip.classList.toggle("error", isError);
+    copyTooltip.classList.add("visible");
+    if (copyTooltipTimer !== undefined) window.clearTimeout(copyTooltipTimer);
+    copyTooltipTimer = window.setTimeout(() => {
+      copyTooltip.classList.remove("visible");
+      copyTooltip.classList.remove("error");
+      copyTooltip.textContent = "";
+    }, 1500);
+  }
+
+  async function copyToClipboard(text: string): Promise<boolean> {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // Clipboard API unavailable or blocked — fall back to the legacy path below.
+    }
+
+    try {
+      const helper = document.createElement("textarea");
+      helper.value = text;
+      helper.setAttribute("readonly", "");
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      const succeeded = document.execCommand("copy");
+      document.body.removeChild(helper);
+      return succeeded;
+    } catch {
+      return false;
+    }
+  }
+
+  function handleGeneratePassphrase() {
+    if (!passphraseInput) return;
+    if (
+      passphraseInput.value.length > 0 &&
+      !confirm(
+        "Replace the current passphrase with a newly generated key? The existing one will be lost."
+      )
+    ) {
+      return;
+    }
+    passphraseInput.value = generateSecurePassphrase();
+    setPassphraseVisible(true);
+  }
+
+  async function handleCopyPassphrase() {
+    const value = passphraseInput?.value.trim() ?? "";
+    if (value.length === 0) {
+      showCopyTooltip("Nothing to copy", true);
+      return;
+    }
+    const copied = await copyToClipboard(value);
+    showCopyTooltip(copied ? "Copied!" : "Copy failed", !copied);
+  }
 
   async function handleSelectFolder() {
     try {
@@ -496,4 +587,6 @@ window.addEventListener("DOMContentLoaded", () => {
   btnClearSelection?.addEventListener("click", handleClearSelection);
   btnStartBackup?.addEventListener("click", handleStartBackup);
   btnRefreshHistory?.addEventListener("click", loadBackupHistory);
+  btnGeneratePass?.addEventListener("click", handleGeneratePassphrase);
+  btnCopyPass?.addEventListener("click", handleCopyPassphrase);
 });
