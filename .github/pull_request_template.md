@@ -1,22 +1,24 @@
-## Description
-<!-- Provide a brief description of what this PR introduces, fixes, or improves. -->
+## Summary
 
-## Type of Change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
+<!-- Provide a concise description of the changes introduced in this pull request. -->
+
+## Changes Included
+
+- [ ] New feature implementation
+- [ ] Bug fix
+- [ ] Refactoring / performance improvement
 - [ ] Security fix
+- [ ] Documentation update
 
-## Related Issue(s)
-<!-- Link any issues related to this PR: e.g. Closes #12 -->
+## Related Issue
 
-## Checklist
-- [ ] My code follows the coding style guidelines of this project.
-- [ ] I have performed a self-review of my code.
-- [ ] I have commented my code, particularly in hard-to-understand areas.
-- [ ] I have made corresponding changes to the documentation.
-- [ ] My changes generate no new warnings or compiler errors.
-- [ ] I have added tests that prove my fix is effective or that my feature works.
-- [ ] All new and existing unit tests passed (`cargo test --manifest-path src-tauri/Cargo.toml`).
-- [ ] Frontend builds cleanly with zero errors (`npm run build`).
+<!-- Reference the related issue: e.g., Closes #14 -->
+
+## Verification Checklist
+
+- [ ] Code complies with project styling guidelines (`cargo fmt` and strict TypeScript).
+- [ ] Self-review of all modified code has been performed.
+- [ ] Documentation has been updated to reflect changes where applicable.
+- [ ] No new compiler warnings or lint errors are introduced.
+- [ ] Unit and integration tests pass successfully (`cargo test --manifest-path src-tauri/Cargo.toml`).
+- [ ] Frontend builds cleanly (`npm run build`).

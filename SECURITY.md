@@ -2,35 +2,47 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.2.x   | :white_check_mark: |
-| < 0.2.0 | :x:                |
+Security updates and patches are provided for the following releases:
+
+| Version | Supported |
+| ------- | --------- |
+| 0.3.x   | Yes       |
+| < 0.3.0 | No        |
 
 ---
 
-## Reporting a Vulnerability
+## Reporting a Security Vulnerability
 
-Security is a primary concern for **Secure Backup**.
+If you discover a security vulnerability in Secure Backup, please report it privately. Do not open public issues, discussions, or pull requests disclosing the vulnerability.
 
-If you discover a security vulnerability, **please DO NOT open a public issue**. 
+### Reporting Procedure
 
-Instead, report it privately using one of the following methods:
+1. **GitHub Security Advisories (Recommended):**  
+   Submit a private report via the [GitHub Security Advisory form](https://github.com/abdulwalidal/secure-backup/security/advisories/new).
+2. **Direct Contact:**  
+   Alternatively, contact the repository maintainer directly through the communication channels listed on their GitHub profile.
 
-1. **GitHub Security Advisory:** Submit an advisory privately via GitHub's [Security Advisories](https://github.com/abdulwalidal/secure-backup/security/advisories/new) page.
-2. **Direct Contact:** Contact the repository maintainer directly via GitHub profile details.
+### Information to Include
 
-### What to Include in Your Report
-- A description of the vulnerability.
-- Steps to reproduce or proof-of-concept code.
-- Potential impact and affected components.
-- Any suggestions for remediation.
+To facilitate a prompt assessment and resolution, include:
 
-We will acknowledge your report within 48 hours and work with you to resolve the issue responsibly before any public disclosure.
+- A clear description of the vulnerability and its potential impact.
+- Step-by-step instructions or minimal proof-of-concept code demonstrating the issue.
+- The operating system, build version, and dependencies used.
+- Any proposed remediation or patches, if available.
 
 ---
 
-## Core Security Guarantees
-- All cryptographic hashing (SHA-256) and future encryption (AES-256-GCM / ChaCha20) happen strictly client-side.
-- Zero plaintext data or keys are transmitted to cloud storage.
-- No telemetry, analytics, or background tracking.
+## Response Timeline
+
+- **Initial Acknowledgment:** Within 48 hours of receipt.
+- **Triage and Status Update:** Within 5 business days, including an evaluation of severity and estimated timeline for a fix.
+- **Coordinated Disclosure:** Security patches will be merged and released prior to public disclosure of the vulnerability details.
+
+---
+
+## Core Security Commitments
+
+1. **Client-Side Cryptography:** All cryptographic hashing (SHA-256) and authenticated encryption (AES-256-GCM / Argon2id) occur exclusively on the local machine before any data is stored or transmitted.
+2. **Zero Plaintext Transmission:** The cloud storage layer receives only encrypted ciphertext blobs and randomized identifiers.
+3. **No Unsolicited Telemetry:** The application contains no analytics, diagnostic beacons, third-party trackers, or background data collection mechanisms.
