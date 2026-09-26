@@ -143,3 +143,43 @@ fn test_settings_storage() {
     let val = get_setting(&conn, "gdrive_token").unwrap();
     assert_eq!(val, None);
 }
+
+#[test]
+fn test_cloud_sync_ledger() {
+    let mut conn = setup_test_db();
+    let manifest = sample_manifest("snap-sync-test", 2, true);
+
+    insert_snapshot(&mut conn, &manifest, "completed").unwrap();
+
+    let snapshots = get_snapshots(&conn).unwrap();
+    assert!(
+        !snapshots[0].cloud_synced,
+        "Initially should not be cloud synced"
+    );
+
+    let files = get_snapshot_files(&conn, "snap-sync-test").unwrap();
+    assert_eq!(files.len(), 2);
+    assert!(!files[0].cloud_synced);
+    assert_eq!(files[0].cloud_file_id, None);
+
+    // Mark individual file as synced
+    mark_file_synced(
+        &conn,
+        "snap-sync-test",
+        &files[0].relative_path,
+        "gdrive_remote_id_999",
+    )
+    .unwrap();
+    let files_updated = get_snapshot_files(&conn, "snap-sync-test").unwrap();
+    assert!(files_updated[0].cloud_synced);
+    assert_eq!(
+        files_updated[0].cloud_file_id,
+        Some("gdrive_remote_id_999".to_string())
+    );
+    assert!(!files_updated[1].cloud_synced);
+
+    // Mark full snapshot synced
+    mark_snapshot_synced(&conn, "snap-sync-test").unwrap();
+    let snapshots_updated = get_snapshots(&conn).unwrap();
+    assert!(snapshots_updated[0].cloud_synced);
+}

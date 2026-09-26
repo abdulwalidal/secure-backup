@@ -23,7 +23,7 @@ fn test_pkce_generation() {
 #[test]
 fn test_google_drive_status_transitions() {
     let conn = setup_test_db();
-    let provider = GoogleDriveProvider::default();
+    let provider = GoogleDriveProvider;
 
     // 1. Initial state: Disconnected
     let status = provider

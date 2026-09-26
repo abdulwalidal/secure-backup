@@ -281,6 +281,170 @@ impl GoogleDriveProvider {
             .email
             .ok_or_else(|| "No email address found in Google profile".to_string())
     }
+
+    /// Finds an existing folder by name inside a parent folder, or creates it.
+    pub fn find_or_create_folder(
+        access_token: &str,
+        folder_name: &str,
+        parent_id: Option<&str>,
+    ) -> Result<String, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        // 1. Search for existing folder
+        let mut query = format!(
+            "name = '{}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+            folder_name.replace('\'', "\\'")
+        );
+        if let Some(pid) = parent_id {
+            query.push_str(&format!(" and '{}' in parents", pid));
+        }
+
+        let search_res = client
+            .get("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(access_token)
+            .query(&[("q", &query), ("fields", &"files(id, name)".to_string())])
+            .send()
+            .map_err(|e| format!("Search request to Drive API failed: {}", e))?;
+
+        if search_res.status().is_success() {
+            #[derive(Deserialize)]
+            struct FileList {
+                files: Vec<DriveFileEntry>,
+            }
+            #[derive(Deserialize)]
+            struct DriveFileEntry {
+                id: String,
+            }
+
+            if let Ok(list) = search_res.json::<FileList>() {
+                if let Some(first) = list.files.first() {
+                    return Ok(first.id.clone());
+                }
+            }
+        }
+
+        // 2. Folder does not exist, create it
+        #[derive(Serialize)]
+        struct CreateFolderReq<'a> {
+            name: &'a str,
+            #[serde(rename = "mimeType")]
+            mime_type: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            parents: Option<Vec<&'a str>>,
+        }
+
+        let body = CreateFolderReq {
+            name: folder_name,
+            mime_type: "application/vnd.google-apps.folder",
+            parents: parent_id.map(|p| vec![p]),
+        };
+
+        let create_res = client
+            .post("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(access_token)
+            .json(&body)
+            .send()
+            .map_err(|e| format!("Create folder request failed: {}", e))?;
+
+        if !create_res.status().is_success() {
+            let status = create_res.status();
+            let err_body = create_res.text().unwrap_or_default();
+            return Err(format!(
+                "Failed to create folder '{}': {} - {}",
+                folder_name, status, err_body
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct CreatedItem {
+            id: String,
+        }
+
+        let created: CreatedItem = create_res
+            .json()
+            .map_err(|e| format!("Failed to parse created folder response: {}", e))?;
+
+        Ok(created.id)
+    }
+
+    /// Uploads a single file using Google Drive REST API v3 Multipart Upload.
+    pub fn upload_file_multipart(
+        access_token: &str,
+        parent_id: &str,
+        file_name: &str,
+        file_bytes: &[u8],
+        mime_type: &str,
+    ) -> Result<String, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        let boundary = "-------SecureBackupBoundary123456789";
+
+        #[derive(Serialize)]
+        struct MetadataReq<'a> {
+            name: &'a str,
+            parents: Vec<&'a str>,
+        }
+
+        let meta = MetadataReq {
+            name: file_name,
+            parents: vec![parent_id],
+        };
+        let meta_json =
+            serde_json::to_string(&meta).map_err(|e| format!("Serialization error: {}", e))?;
+
+        let mut body: Vec<u8> = Vec::new();
+        // Part 1: Metadata
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(b"Content-Type: application/json; charset=UTF-8\r\n\r\n");
+        body.extend_from_slice(meta_json.as_bytes());
+        body.extend_from_slice(b"\r\n");
+
+        // Part 2: Media payload
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes());
+        body.extend_from_slice(file_bytes);
+        body.extend_from_slice(b"\r\n");
+
+        // End boundary
+        body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+        let res = client
+            .post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+            .bearer_auth(access_token)
+            .header(
+                "Content-Type",
+                format!("multipart/related; boundary={}", boundary),
+            )
+            .body(body)
+            .send()
+            .map_err(|e| format!("Upload request to Drive failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let err_body = res.text().unwrap_or_default();
+            return Err(format!(
+                "Drive file upload failed ({}): {}",
+                status, err_body
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct UploadedFileRes {
+            id: String,
+        }
+
+        let file_res: UploadedFileRes = res
+            .json()
+            .map_err(|e| format!("Failed to parse upload response JSON: {}", e))?;
+
+        Ok(file_res.id)
+    }
 }
 
 impl CloudProvider for GoogleDriveProvider {
@@ -310,5 +474,90 @@ impl CloudProvider for GoogleDriveProvider {
         delete_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN)?;
         delete_setting(conn, GDRIVE_SETTING_USER_EMAIL)?;
         Ok(())
+    }
+
+    fn upload_snapshot(
+        &self,
+        conn: &Connection,
+        snapshot_id: &str,
+    ) -> Result<super::UploadSummary, String> {
+        let access_token = get_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN)?.ok_or_else(|| {
+            "Google Drive is not connected. Please connect in Settings first.".to_string()
+        })?;
+
+        // 1. Locate local snapshot folder
+        let snapshot_dir = crate::backup::get_backups_dir().join(snapshot_id);
+        if !snapshot_dir.exists() {
+            return Err(format!(
+                "Snapshot directory does not exist locally: {:?}",
+                snapshot_dir
+            ));
+        }
+
+        // 2. Find or create root vault folder: "Secure Backup Vault"
+        let vault_id = Self::find_or_create_folder(&access_token, "Secure Backup Vault", None)?;
+
+        // 3. Find or create snapshot subfolder
+        let snapshot_folder_id =
+            Self::find_or_create_folder(&access_token, snapshot_id, Some(&vault_id))?;
+
+        // 4. Query files from SQLite for this snapshot
+        let file_records = crate::db::get_snapshot_files(conn, snapshot_id)?;
+        let mut files_uploaded = 0;
+        let mut total_bytes_uploaded = 0u64;
+
+        let data_dir = snapshot_dir.join("data");
+
+        for file in &file_records {
+            let file_path = if data_dir.join(&file.stored_filename).exists() {
+                data_dir.join(&file.stored_filename)
+            } else if snapshot_dir.join(&file.relative_path).exists() {
+                snapshot_dir.join(&file.relative_path)
+            } else {
+                continue;
+            };
+
+            let bytes = std::fs::read(&file_path)
+                .map_err(|e| format!("Failed to read file {:?}: {}", file_path, e))?;
+
+            let remote_id = Self::upload_file_multipart(
+                &access_token,
+                &snapshot_folder_id,
+                &file.stored_filename,
+                &bytes,
+                "application/octet-stream",
+            )?;
+
+            // Update SQLite ledger immediately
+            crate::db::mark_file_synced(conn, snapshot_id, &file.relative_path, &remote_id)?;
+            files_uploaded += 1;
+            total_bytes_uploaded += bytes.len() as u64;
+        }
+
+        // 5. Upload manifest.json
+        let manifest_path = snapshot_dir.join("manifest.json");
+        if manifest_path.exists() {
+            if let Ok(manifest_bytes) = std::fs::read(&manifest_path) {
+                let _ = Self::upload_file_multipart(
+                    &access_token,
+                    &snapshot_folder_id,
+                    "manifest.json",
+                    &manifest_bytes,
+                    "application/json",
+                );
+            }
+        }
+
+        // 6. Mark snapshot as cloud synced in SQLite
+        crate::db::mark_snapshot_synced(conn, snapshot_id)?;
+
+        Ok(super::UploadSummary {
+            snapshot_id: snapshot_id.to_string(),
+            provider: "Google Drive".to_string(),
+            files_uploaded,
+            total_bytes_uploaded,
+            vault_folder_id: vault_id,
+            snapshot_folder_id,
+        })
     }
 }

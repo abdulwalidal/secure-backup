@@ -45,15 +45,30 @@ pub struct CloudConnectionStatus {
     pub storage_total_bytes: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadSummary {
+    pub snapshot_id: String,
+    pub provider: String,
+    pub files_uploaded: usize,
+    pub total_bytes_uploaded: u64,
+    pub vault_folder_id: String,
+    pub snapshot_folder_id: String,
+}
+
 pub trait CloudProvider: Send + Sync {
     fn provider_type(&self) -> CloudProviderType;
     fn get_status(&self, conn: &Connection) -> Result<CloudConnectionStatus, String>;
     fn disconnect(&self, conn: &Connection) -> Result<(), String>;
+    fn upload_snapshot(
+        &self,
+        conn: &Connection,
+        snapshot_id: &str,
+    ) -> Result<UploadSummary, String>;
 }
 
 /// Returns the status list of all registered cloud providers.
 pub fn get_all_provider_statuses(conn: &Connection) -> Vec<CloudConnectionStatus> {
-    let gdrive = gdrive::GoogleDriveProvider::default();
+    let gdrive = gdrive::GoogleDriveProvider;
     let gdrive_status = gdrive
         .get_status(conn)
         .unwrap_or_else(|_| CloudConnectionStatus {

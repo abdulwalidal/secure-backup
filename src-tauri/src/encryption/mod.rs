@@ -88,8 +88,7 @@ pub fn encrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
     let mut plaintext = Vec::new();
     file.read_to_end(&mut plaintext)?;
 
-    let (ciphertext, nonce) =
-        encrypt_bytes(&plaintext, key).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let (ciphertext, nonce) = encrypt_bytes(&plaintext, key).map_err(io::Error::other)?;
 
     let mut out = File::create(dest)?;
     out.write_all(MAGIC_HEADER)?;

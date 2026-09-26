@@ -62,6 +62,7 @@ pub struct SnapshotRecord {
     pub encryption_algorithm: Option<String>,
     pub salt_hex: Option<String>,
     pub status: String,
+    pub cloud_synced: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +74,8 @@ pub struct FileRecord {
     pub sha256_hash: String,
     pub modified_timestamp: u64,
     pub stored_filename: String,
+    pub cloud_file_id: Option<String>,
+    pub cloud_synced: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

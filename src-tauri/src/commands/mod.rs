@@ -280,7 +280,7 @@ pub fn disconnect_cloud_provider(provider_type: String) -> CommandResult<bool> {
     };
 
     if provider_type == "google_drive" || provider_type == "GoogleDrive" {
-        let gdrive = crate::cloud::gdrive::GoogleDriveProvider::default();
+        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
         match gdrive.disconnect(&conn) {
             Ok(_) => CommandResult {
                 success: true,
@@ -298,6 +298,47 @@ pub fn disconnect_cloud_provider(provider_type: String) -> CommandResult<bool> {
             success: false,
             data: None,
             error: Some(format!("Unsupported provider type: {}", provider_type)),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn sync_snapshot_to_cloud(
+    snapshot_id: String,
+    provider_type: String,
+) -> CommandResult<crate::cloud::UploadSummary> {
+    use crate::cloud::CloudProvider;
+
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
+        match gdrive.upload_snapshot(&conn, &snapshot_id) {
+            Ok(summary) => CommandResult {
+                success: true,
+                data: Some(summary),
+                error: None,
+            },
+            Err(e) => CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            },
+        }
+    } else {
+        CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Unsupported cloud provider: {}", provider_type)),
         }
     }
 }

@@ -364,10 +364,52 @@ window.addEventListener("DOMContentLoaded", () => {
               ${fileListHtml}
               ${moreFilesCount}
             </div>
+            <div class="history-card-footer" style="display: flex; justify-content: flex-end; margin-top: 6px;">
+              <button class="btn btn-secondary btn-sm btn-sync-snapshot" data-snapshot-id="${escapeHtml(m.id)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                </svg>
+                Sync to Google Drive
+              </button>
+            </div>
           </div>
         `;
       })
       .join("");
+
+    // Attach sync button handlers
+    historyContainer.querySelectorAll<HTMLButtonElement>(".btn-sync-snapshot").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const snapshotId = btn.getAttribute("data-snapshot-id");
+        if (!snapshotId) return;
+
+        btn.disabled = true;
+        btn.textContent = "Uploading to Cloud...";
+
+        try {
+          const res = await invoke<CommandResult<any>>("sync_snapshot_to_cloud", {
+            snapshotId,
+            providerType: "google_drive",
+          });
+
+          if (res.success && res.data) {
+            btn.textContent = "Cloud Synced";
+            btn.style.borderColor = "var(--success-color)";
+            btn.style.color = "var(--success-color)";
+            alert(`Snapshot '${snapshotId}' uploaded successfully to Google Drive (Vault ID: ${res.data.vault_folder_id})!`);
+          } else {
+            alert(res.error || "Upload failed. Please ensure Google Drive is connected in Settings.");
+            btn.disabled = false;
+            btn.textContent = "Sync to Google Drive";
+          }
+        } catch (err) {
+          console.error("Cloud sync error:", err);
+          alert("Network or authorization error while uploading to Google Drive.");
+          btn.disabled = false;
+          btn.textContent = "Sync to Google Drive";
+        }
+      });
+    });
   }
 
   // Cloud Providers Handling

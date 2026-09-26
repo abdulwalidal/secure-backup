@@ -40,7 +40,8 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             is_encrypted INTEGER NOT NULL,
             encryption_algorithm TEXT,
             salt_hex TEXT,
-            status TEXT NOT NULL
+            status TEXT NOT NULL,
+            cloud_synced INTEGER DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at DESC);
@@ -53,6 +54,8 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             sha256_hash TEXT NOT NULL,
             modified_timestamp INTEGER NOT NULL,
             stored_filename TEXT NOT NULL,
+            cloud_file_id TEXT,
+            cloud_synced INTEGER DEFAULT 0,
             FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
         );
 
@@ -66,6 +69,20 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         );
         "#,
     )?;
+
+    // Safe schema migrations for existing databases
+    let _ = conn.execute(
+        "ALTER TABLE snapshots ADD COLUMN cloud_synced INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE snapshot_files ADD COLUMN cloud_file_id TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE snapshot_files ADD COLUMN cloud_synced INTEGER DEFAULT 0",
+        [],
+    );
 
     Ok(())
 }
@@ -159,7 +176,7 @@ pub fn get_snapshots(conn: &Connection) -> Result<Vec<SnapshotRecord>, String> {
             SELECT
                 id, source_path, source_name, created_at,
                 total_files, total_size_bytes, is_encrypted,
-                encryption_algorithm, salt_hex, status
+                encryption_algorithm, salt_hex, status, cloud_synced
             FROM snapshots
             ORDER BY created_at DESC
             "#,
@@ -169,6 +186,7 @@ pub fn get_snapshots(conn: &Connection) -> Result<Vec<SnapshotRecord>, String> {
     let rows = stmt
         .query_map([], |row| {
             let is_encrypted_int: i64 = row.get(6)?;
+            let cloud_synced_int: i64 = row.get(10).unwrap_or(0);
             Ok(SnapshotRecord {
                 id: row.get(0)?,
                 source_path: row.get(1)?,
@@ -180,6 +198,7 @@ pub fn get_snapshots(conn: &Connection) -> Result<Vec<SnapshotRecord>, String> {
                 encryption_algorithm: row.get(7)?,
                 salt_hex: row.get(8)?,
                 status: row.get(9)?,
+                cloud_synced: cloud_synced_int != 0,
             })
         })
         .map_err(|e| format!("Failed to execute query: {}", e))?;
@@ -198,7 +217,8 @@ pub fn get_snapshot_files(conn: &Connection, snapshot_id: &str) -> Result<Vec<Fi
             r#"
             SELECT
                 id, snapshot_id, relative_path, size_bytes,
-                sha256_hash, modified_timestamp, stored_filename
+                sha256_hash, modified_timestamp, stored_filename,
+                cloud_file_id, cloud_synced
             FROM snapshot_files
             WHERE snapshot_id = ?1
             ORDER BY relative_path ASC
@@ -208,6 +228,7 @@ pub fn get_snapshot_files(conn: &Connection, snapshot_id: &str) -> Result<Vec<Fi
 
     let rows = stmt
         .query_map(params![snapshot_id], |row| {
+            let cloud_synced_int: i64 = row.get(8).unwrap_or(0);
             Ok(FileRecord {
                 id: Some(row.get(0)?),
                 snapshot_id: row.get(1)?,
@@ -216,6 +237,8 @@ pub fn get_snapshot_files(conn: &Connection, snapshot_id: &str) -> Result<Vec<Fi
                 sha256_hash: row.get(4)?,
                 modified_timestamp: row.get::<_, i64>(5)? as u64,
                 stored_filename: row.get(6)?,
+                cloud_file_id: row.get(7)?,
+                cloud_synced: cloud_synced_int != 0,
             })
         })
         .map_err(|e| format!("Failed to query snapshot files: {}", e))?;
@@ -226,6 +249,37 @@ pub fn get_snapshot_files(conn: &Connection, snapshot_id: &str) -> Result<Vec<Fi
     }
 
     Ok(files)
+}
+
+pub fn mark_file_synced(
+    conn: &Connection,
+    snapshot_id: &str,
+    relative_path: &str,
+    cloud_file_id: &str,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        UPDATE snapshot_files
+        SET cloud_file_id = ?1, cloud_synced = 1
+        WHERE snapshot_id = ?2 AND relative_path = ?3
+        "#,
+        params![cloud_file_id, snapshot_id, relative_path],
+    )
+    .map_err(|e| format!("Failed to mark file synced: {}", e))?;
+    Ok(())
+}
+
+pub fn mark_snapshot_synced(conn: &Connection, snapshot_id: &str) -> Result<(), String> {
+    conn.execute(
+        r#"
+        UPDATE snapshots
+        SET cloud_synced = 1
+        WHERE id = ?1
+        "#,
+        params![snapshot_id],
+    )
+    .map_err(|e| format!("Failed to mark snapshot synced: {}", e))?;
+    Ok(())
 }
 
 pub fn get_db_stats(conn: &Connection) -> Result<DbStats, String> {

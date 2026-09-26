@@ -10,11 +10,10 @@ use walkdir::WalkDir;
 
 /// Base directory for local backups: ~/.local/share/secure-backup/backups
 pub fn get_backups_dir() -> PathBuf {
-    let data_dir = dirs::data_local_dir()
+    dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("secure-backup")
-        .join("backups");
-    data_dir
+        .join("backups")
 }
 
 /// Recursively scans a source directory, computing file metadata and SHA-256 hashes.
@@ -182,7 +181,7 @@ pub fn list_local_backups() -> io::Result<Vec<BackupManifest>> {
         }
     }
 
-    manifests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    manifests.sort_by_key(|a| std::cmp::Reverse(a.created_at));
     Ok(manifests)
 }
 
