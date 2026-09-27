@@ -121,6 +121,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const passphraseInput = document.getElementById("backup-passphrase") as HTMLInputElement | null;
   const btnTogglePass = document.getElementById("btn-toggle-pass") as HTMLButtonElement | null;
+  const passphraseConfirmInput = document.getElementById("backup-passphrase-confirm") as HTMLInputElement | null;
+  const btnToggleConfirmPass = document.getElementById("btn-toggle-confirm-pass") as HTMLButtonElement | null;
+  const passphraseStrengthContainer = document.getElementById("passphrase-strength-container") as HTMLElement | null;
+  const strengthMeterFill = document.getElementById("strength-meter-fill") as HTMLElement | null;
+  const strengthText = document.getElementById("strength-text") as HTMLElement | null;
+  const strengthHint = document.getElementById("strength-hint") as HTMLElement | null;
+  const passphraseMatchFeedback = document.getElementById("passphrase-match-feedback") as HTMLElement | null;
   const btnGeneratePass = document.getElementById("btn-generate-pass") as HTMLButtonElement | null;
   const btnCopyPass = document.getElementById("btn-copy-pass") as HTMLButtonElement | null;
   const copyTooltip = document.getElementById("copy-tooltip") as HTMLElement | null;
@@ -162,11 +169,150 @@ window.addEventListener("DOMContentLoaded", () => {
     if (btnTogglePass) btnTogglePass.innerHTML = visible ? EYE_OFF_SVG : EYE_OPEN_SVG;
   }
 
+  function setConfirmPassphraseVisible(visible: boolean) {
+    if (!passphraseConfirmInput) return;
+    passphraseConfirmInput.type = visible ? "text" : "password";
+    if (btnToggleConfirmPass) btnToggleConfirmPass.innerHTML = visible ? EYE_OFF_SVG : EYE_OPEN_SVG;
+  }
+
   // Toggle passphrase visibility
   btnTogglePass?.addEventListener("click", () => {
     if (!passphraseInput) return;
     setPassphraseVisible(passphraseInput.type === "password");
   });
+
+  // Toggle confirm passphrase visibility
+  btnToggleConfirmPass?.addEventListener("click", () => {
+    if (!passphraseConfirmInput) return;
+    setConfirmPassphraseVisible(passphraseConfirmInput.type === "password");
+  });
+
+  interface PassphraseStrength {
+    score: number;
+    label: string;
+    color: string;
+    width: string;
+    hint: string;
+  }
+
+  function evaluatePassphraseStrength(passphrase: string): PassphraseStrength {
+    if (passphrase.length === 0) {
+      return {
+        score: 0,
+        label: "None",
+        color: "var(--card-border)",
+        width: "0%",
+        hint: "Enter at least 8 characters",
+      };
+    }
+
+    let score = 0;
+    if (passphrase.length >= 8) score += 1;
+    if (passphrase.length >= 14) score += 1;
+    if (passphrase.length >= 24) score += 1;
+
+    const hasLower = /[a-z]/.test(passphrase);
+    const hasUpper = /[A-Z]/.test(passphrase);
+    const hasNumber = /[0-9]/.test(passphrase);
+    const hasSpecial = /[^a-zA-Z0-9]/.test(passphrase);
+
+    const varietyCount = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasNumber ? 1 : 0) + (hasSpecial ? 1 : 0);
+    if (varietyCount >= 3) score += 1;
+    if (varietyCount === 4 && passphrase.length >= 12) score += 1;
+
+    if (score <= 1) {
+      return {
+        score: 1,
+        label: "Weak",
+        color: "var(--danger)",
+        width: "25%",
+        hint: "Use 12+ characters with symbols, uppercase, and numbers",
+      };
+    } else if (score === 2) {
+      return {
+        score: 2,
+        label: "Fair",
+        color: "var(--warning)",
+        width: "50%",
+        hint: "Add numbers or special characters to increase strength",
+      };
+    } else if (score === 3) {
+      return {
+        score: 3,
+        label: "Strong",
+        color: "var(--accent-color)",
+        width: "75%",
+        hint: "Great passphrase for AES-256-GCM encryption",
+      };
+    } else {
+      return {
+        score: 4,
+        label: "Very Strong",
+        color: "var(--success)",
+        width: "100%",
+        hint: "Excellent entropy for zero-knowledge encryption",
+      };
+    }
+  }
+
+  function updatePassphraseStrengthUI() {
+    const pass = passphraseInput?.value ?? "";
+    if (!passphraseStrengthContainer || !strengthMeterFill || !strengthText || !strengthHint) return;
+
+    if (pass.length === 0) {
+      passphraseStrengthContainer.style.display = "none";
+    } else {
+      passphraseStrengthContainer.style.display = "flex";
+      const res = evaluatePassphraseStrength(pass);
+      strengthMeterFill.style.width = res.width;
+      strengthMeterFill.style.backgroundColor = res.color;
+      strengthText.textContent = `Strength: ${res.label}`;
+      strengthText.style.color = res.color;
+      strengthHint.textContent = res.hint;
+    }
+
+    updatePassphraseMatchUI();
+  }
+
+  function updatePassphraseMatchUI() {
+    if (!passphraseMatchFeedback || !passphraseInput || !passphraseConfirmInput) return;
+    const pass = passphraseInput.value;
+    const confirm = passphraseConfirmInput.value;
+
+    if (pass.length === 0 && confirm.length === 0) {
+      passphraseMatchFeedback.style.display = "none";
+      passphraseMatchFeedback.textContent = "";
+      passphraseMatchFeedback.className = "passphrase-match-feedback";
+      return;
+    }
+
+    passphraseMatchFeedback.style.display = "flex";
+
+    if (confirm.length === 0) {
+      passphraseMatchFeedback.textContent = "Please confirm your passphrase";
+      passphraseMatchFeedback.className = "passphrase-match-feedback mismatched";
+    } else if (pass === confirm) {
+      passphraseMatchFeedback.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+        <span>Passphrases match</span>
+      `;
+      passphraseMatchFeedback.className = "passphrase-match-feedback matched";
+    } else {
+      passphraseMatchFeedback.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+        <span>Passphrases do not match</span>
+      `;
+      passphraseMatchFeedback.className = "passphrase-match-feedback mismatched";
+    }
+  }
+
+  passphraseInput?.addEventListener("input", updatePassphraseStrengthUI);
+  passphraseConfirmInput?.addEventListener("input", updatePassphraseMatchUI);
 
   const PASSPHRASE_BYTES = 32;
 
@@ -236,8 +382,14 @@ window.addEventListener("DOMContentLoaded", () => {
     ) {
       return;
     }
-    passphraseInput.value = generateSecurePassphrase();
+    const newKey = generateSecurePassphrase();
+    passphraseInput.value = newKey;
+    if (passphraseConfirmInput) {
+      passphraseConfirmInput.value = newKey;
+    }
     setPassphraseVisible(true);
+    setConfirmPassphraseVisible(true);
+    updatePassphraseStrengthUI();
   }
 
   async function handleCopyPassphrase() {
@@ -329,6 +481,10 @@ window.addEventListener("DOMContentLoaded", () => {
     if (passphraseInput) {
       passphraseInput.value = "";
     }
+    if (passphraseConfirmInput) {
+      passphraseConfirmInput.value = "";
+    }
+    updatePassphraseStrengthUI();
   }
 
   async function handleStartBackup() {
@@ -337,8 +493,16 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const passphrase = passphraseInput?.value.trim();
-    if (!passphrase) {
+    const passphrase = passphraseInput?.value.trim() ?? "";
+    const passphraseConfirm = passphraseConfirmInput?.value.trim() ?? "";
+
+    if (passphrase.length > 0) {
+      if (passphrase !== passphraseConfirm) {
+        alert("Passphrases do not match. Please verify your passphrase confirmation before encrypting.");
+        passphraseConfirmInput?.focus();
+        return;
+      }
+    } else {
       const confirmPlain = confirm(
         "No passphrase entered. Do you want to proceed with unencrypted backup? (Recommended: enter a passphrase for AES-256-GCM encryption)"
       );
