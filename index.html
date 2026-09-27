@@ -160,8 +160,38 @@
                     </button>
                   </div>
 
+                  <!-- Passphrase Strength Meter -->
+                  <div class="passphrase-strength-container" id="passphrase-strength-container" style="display: none;">
+                    <div class="strength-meter-bar">
+                      <div class="strength-meter-fill" id="strength-meter-fill"></div>
+                    </div>
+                    <div class="strength-label-row">
+                      <span class="strength-text" id="strength-text">Strength: Weak</span>
+                      <span class="strength-hint" id="strength-hint">Use 12+ characters with symbols and numbers</span>
+                    </div>
+                  </div>
+
+                  <!-- Confirm Passphrase Field -->
+                  <div class="passphrase-confirm-section" id="passphrase-confirm-section" style="margin-top: 8px;">
+                    <div class="passphrase-input-wrap">
+                      <input
+                        type="password"
+                        id="backup-passphrase-confirm"
+                        placeholder="Confirm passphrase to prevent typos..."
+                        autocomplete="off"
+                      />
+                      <button type="button" id="btn-toggle-confirm-pass" class="btn-icon" title="Show/Hide">
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <div id="passphrase-match-feedback" class="passphrase-match-feedback" style="display: none;"></div>
+                  </div>
+
                   <!-- Secure passphrase generation & clipboard actions -->
-                  <div class="passphrase-actions">
+                  <div class="passphrase-actions" style="margin-top: 10px;">
                     <button type="button" id="btn-generate-pass" class="btn btn-secondary btn-sm">
                       <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
@@ -182,7 +212,12 @@
                     Protected with <strong>Argon2id</strong> + <strong>AES-256-GCM</strong>.
                   </span>
                   <p class="passphrase-warning">
-                    ⚠️ Zero-knowledge encryption: this key is stored nowhere and cannot be recovered if lost. Copying places it on your system clipboard, where clipboard history or cloud sync may retain it.
+                    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -1px; margin-right: 3px;">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                      <line x1="12" y1="9" x2="12" y2="13"/>
+                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    Zero-knowledge encryption: this key is stored nowhere and cannot be recovered if lost. Copying places it on your system clipboard, where clipboard history or cloud sync may retain it.
                   </p>
                 </div>
 
