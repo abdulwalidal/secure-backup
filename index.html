@@ -327,14 +327,70 @@
           </div>
         </section>
 
-        <!-- Restore Tab Placeholder -->
+        <!-- Restore Tab -->
         <section id="tab-restore" class="tab-pane">
           <header class="content-header">
-            <h1 class="page-title">Restore Files</h1>
-            <p class="page-subtitle">Download, verify, and decrypt files back to your system.</p>
+            <div>
+              <h1 class="page-title">Restore & Disaster Recovery</h1>
+              <p class="page-subtitle">Discover encrypted cloud snapshots and reconstruct your local backup ledger.</p>
+            </div>
+            <div class="header-actions">
+              <button id="btn-scan-cloud" class="btn btn-secondary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span>Scan Cloud</span>
+              </button>
+              <button id="btn-rebuild-catalog" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                <span>Rebuild Local Catalog</span>
+              </button>
+            </div>
           </header>
-          <div class="placeholder-box">
-            <p>Restore functionality will be active in Phase 10.</p>
+
+          <div id="dr-status-message" class="dr-status-box" style="display: none;"></div>
+
+          <!-- Disaster Recovery Remote Snapshots Card -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-icon secure-accent">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="card-title">Remote Cloud Snapshots</h2>
+                <p class="card-desc">Zero-knowledge encrypted snapshots found in your Google Drive vault. Rebuilding imports missing snapshots into your local database.</p>
+              </div>
+            </div>
+
+            <div id="dr-snapshots-container" class="dr-snapshots-list">
+              <div class="placeholder-box">
+                <p>Click "Scan Cloud" above to discover encrypted snapshots in your connected Google Drive.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Future Target Directory Restoration Card -->
+          <div class="card" style="margin-top: 20px;">
+            <div class="card-header">
+              <div class="card-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="card-title">Target Directory File Decryption</h2>
+                <p class="card-desc">Point-in-time ciphertext downloading and AES-256-GCM restoration to your chosen directory will activate in Phase 10.</p>
+              </div>
+            </div>
           </div>
         </section>
 

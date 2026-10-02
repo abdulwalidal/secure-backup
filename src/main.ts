@@ -55,6 +55,20 @@ interface CloudConnectionStatus {
   storage_total_bytes?: number;
 }
 
+interface RemoteSnapshotSummary {
+  snapshot_id: string;
+  source_name: string;
+  created_at: string;
+  total_files: number;
+  total_size_bytes: number;
+  is_encrypted: boolean;
+  encryption_algorithm?: string;
+  provider: string;
+  vault_folder_id: string;
+  snapshot_folder_id: string;
+  is_imported: boolean;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -106,6 +120,8 @@ window.addEventListener("DOMContentLoaded", () => {
         loadBackupHistory();
       } else if (tabId === "settings") {
         loadCloudProviders();
+      } else if (tabId === "restore") {
+        scanCloudSnapshots();
       }
     });
   });
@@ -118,6 +134,11 @@ window.addEventListener("DOMContentLoaded", () => {
   const folderDisplay = document.getElementById("selected-folder-display") as HTMLElement | null;
   const folderMetaCard = document.getElementById("folder-meta-card") as HTMLElement | null;
   const backupResultBanner = document.getElementById("backup-result-banner") as HTMLElement | null;
+
+  const btnScanCloud = document.getElementById("btn-scan-cloud") as HTMLButtonElement | null;
+  const btnRebuildCatalog = document.getElementById("btn-rebuild-catalog") as HTMLButtonElement | null;
+  const drSnapshotsContainer = document.getElementById("dr-snapshots-container") as HTMLElement | null;
+  const drStatusMessage = document.getElementById("dr-status-message") as HTMLElement | null;
 
   const passphraseInput = document.getElementById("backup-passphrase") as HTMLInputElement | null;
   const btnTogglePass = document.getElementById("btn-toggle-pass") as HTMLButtonElement | null;
@@ -789,10 +810,176 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- Disaster Recovery & Cloud Discovery ---
+
+  function showDrStatus(message: string, type: "info" | "success" | "error") {
+    if (!drStatusMessage) return;
+    drStatusMessage.className = `dr-status-box ${type}`;
+    drStatusMessage.textContent = message;
+    drStatusMessage.style.display = "flex";
+  }
+
+  function hideDrStatus() {
+    if (!drStatusMessage) return;
+    drStatusMessage.style.display = "none";
+    drStatusMessage.textContent = "";
+  }
+
+  async function scanCloudSnapshots() {
+    if (!drSnapshotsContainer) return;
+
+    if (btnScanCloud) {
+      btnScanCloud.disabled = true;
+      btnScanCloud.innerHTML = `
+        <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+          <path d="M12 2a10 10 0 0 1 10 10"/>
+        </svg>
+        <span>Scanning...</span>
+      `;
+    }
+
+    drSnapshotsContainer.innerHTML = `
+      <div class="placeholder-box">
+        <p>Scanning Google Drive vault for snapshots...</p>
+      </div>
+    `;
+
+    try {
+      const res = await invoke<CommandResult<RemoteSnapshotSummary[]>>("discover_cloud_snapshots", {
+        providerType: "google_drive",
+      });
+
+      if (!res.success || !res.data) {
+        showDrStatus(res.error || "Failed to discover remote snapshots. Ensure Google Drive is connected in Settings.", "error");
+        drSnapshotsContainer.innerHTML = `
+          <div class="placeholder-box">
+            <p>Could not discover remote snapshots: ${escapeHtml(res.error || "Unknown error")}</p>
+          </div>
+        `;
+        return;
+      }
+
+      const snapshots = res.data;
+      if (snapshots.length === 0) {
+        hideDrStatus();
+        drSnapshotsContainer.innerHTML = `
+          <div class="placeholder-box">
+            <p>No snapshots found in remote Google Drive vault folder.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const missingCount = snapshots.filter((s) => !s.is_imported).length;
+      if (missingCount > 0) {
+        showDrStatus(`Discovered ${snapshots.length} remote snapshot(s). ${missingCount} snapshot(s) are missing from your local catalog. Click "Rebuild Local Catalog" to import them.`, "info");
+      } else {
+        showDrStatus(`All ${snapshots.length} remote snapshot(s) are recorded in your local catalog.`, "success");
+      }
+
+      drSnapshotsContainer.innerHTML = snapshots
+        .map((snap) => {
+          const encBadge = snap.is_encrypted
+            ? `<span class="badge-enc">${escapeHtml(snap.encryption_algorithm || "AES-256-GCM")}</span>`
+            : `<span class="badge-plain">Plain</span>`;
+
+          const importedBadge = snap.is_imported
+            ? `<span class="cloud-status-badge connected">Cataloged</span>`
+            : `<span class="cloud-status-badge roadmap">Cloud Only</span>`;
+
+          return `
+            <div class="dr-snapshot-card">
+              <div class="dr-snapshot-header">
+                <div class="dr-snapshot-title-group">
+                  <span class="dr-snapshot-source-name">${escapeHtml(snap.source_name)}</span>
+                  <div class="dr-snapshot-badges">
+                    ${encBadge}
+                    ${importedBadge}
+                  </div>
+                </div>
+                <span class="dr-snapshot-id mono">${escapeHtml(snap.snapshot_id)}</span>
+              </div>
+              <div class="dr-snapshot-meta">
+                <span>Created: <strong>${formatDate(snap.created_at)}</strong></span>
+                <span>Files: <strong>${snap.total_files}</strong></span>
+                <span>Total Size: <strong>${formatBytes(snap.total_size_bytes)}</strong></span>
+                <span>Destination: <strong>${escapeHtml(snap.provider)}</strong></span>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+    } catch (e) {
+      console.error("Cloud discovery error:", e);
+      showDrStatus("An error occurred while querying remote cloud snapshots.", "error");
+      drSnapshotsContainer.innerHTML = `
+        <div class="placeholder-box">
+          <p>Failed to query cloud storage. Check connection settings.</p>
+        </div>
+      `;
+    } finally {
+      if (btnScanCloud) {
+        btnScanCloud.disabled = false;
+        btnScanCloud.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Scan Cloud</span>
+        `;
+      }
+    }
+  }
+
+  async function handleRebuildCatalog() {
+    if (!btnRebuildCatalog) return;
+
+    btnRebuildCatalog.disabled = true;
+    btnRebuildCatalog.innerHTML = `
+      <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+        <path d="M12 2a10 10 0 0 1 10 10"/>
+      </svg>
+      <span>Rebuilding Catalog...</span>
+    `;
+
+    try {
+      const res = await invoke<CommandResult<number>>("rebuild_database_from_cloud", {
+        providerType: "google_drive",
+      });
+
+      if (res.success) {
+        const count = res.data ?? 0;
+        showDrStatus(`Successfully recovered local catalog! Imported ${count} snapshot(s) from Google Drive.`, "success");
+        await scanCloudSnapshots();
+        loadBackupHistory();
+      } else {
+        showDrStatus(res.error || "Failed to rebuild database catalog from cloud.", "error");
+      }
+    } catch (e) {
+      console.error("Rebuild catalog error:", e);
+      showDrStatus("Unexpected error while rebuilding database catalog.", "error");
+    } finally {
+      btnRebuildCatalog.disabled = false;
+      btnRebuildCatalog.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        <span>Rebuild Local Catalog</span>
+      `;
+    }
+  }
+
   btnSelectFolder?.addEventListener("click", handleSelectFolder);
   btnClearSelection?.addEventListener("click", handleClearSelection);
   btnStartBackup?.addEventListener("click", handleStartBackup);
   btnRefreshHistory?.addEventListener("click", loadBackupHistory);
   btnGeneratePass?.addEventListener("click", handleGeneratePassphrase);
   btnCopyPass?.addEventListener("click", handleCopyPassphrase);
+  btnScanCloud?.addEventListener("click", scanCloudSnapshots);
+  btnRebuildCatalog?.addEventListener("click", handleRebuildCatalog);
 });
+
