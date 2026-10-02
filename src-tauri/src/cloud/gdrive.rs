@@ -504,7 +504,76 @@ impl GoogleDriveProvider {
             .json()
             .map_err(|e| format!("Failed to parse upload response JSON: {}", e))?;
 
+        // Post-upload size and existence verification
+        Self::verify_remote_file(access_token, &file_res.id, file_bytes.len() as u64)?;
+
         Ok(file_res.id)
+    }
+
+    /// Verifies that a file uploaded to Google Drive exists and its byte size matches the local payload.
+    pub fn verify_remote_file(
+        access_token: &str,
+        file_id: &str,
+        expected_size: u64,
+    ) -> Result<bool, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        let url = format!(
+            "https://www.googleapis.com/drive/v3/files/{}?fields=id,name,size,trashed",
+            file_id
+        );
+
+        let res = client
+            .get(&url)
+            .bearer_auth(access_token)
+            .send()
+            .map_err(|e| format!("File verification request failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let err_body = res.text().unwrap_or_default();
+            return Err(format!(
+                "Failed to fetch metadata for verification ({}): {}",
+                status, err_body
+            ));
+        }
+
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct RemoteFileMeta {
+            id: String,
+            name: Option<String>,
+            size: Option<String>,
+            trashed: Option<bool>,
+        }
+
+        let meta: RemoteFileMeta = res
+            .json()
+            .map_err(|e| format!("Failed to parse file metadata for verification: {}", e))?;
+
+        if meta.trashed.unwrap_or(false) {
+            return Err(format!("Remote file '{}' is marked as trashed.", file_id));
+        }
+
+        let remote_size = meta
+            .size
+            .as_deref()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        if remote_size != expected_size {
+            return Err(format!(
+                "Integrity mismatch for file '{}': remote size ({} bytes) does not match local size ({} bytes).",
+                meta.name.unwrap_or_else(|| file_id.to_string()),
+                remote_size,
+                expected_size
+            ));
+        }
+
+        Ok(true)
     }
 }
 
