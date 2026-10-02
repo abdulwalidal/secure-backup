@@ -342,3 +342,81 @@ pub fn sync_snapshot_to_cloud(
         }
     }
 }
+
+#[tauri::command]
+pub fn discover_cloud_snapshots(
+    provider_type: String,
+) -> CommandResult<Vec<crate::cloud::RemoteSnapshotSummary>> {
+    use crate::cloud::CloudProvider;
+
+    let conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
+        match gdrive.discover_remote_snapshots(&conn) {
+            Ok(snapshots) => CommandResult {
+                success: true,
+                data: Some(snapshots),
+                error: None,
+            },
+            Err(e) => CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            },
+        }
+    } else {
+        CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Unsupported cloud provider: {}", provider_type)),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn rebuild_database_from_cloud(provider_type: String) -> CommandResult<usize> {
+    use crate::cloud::CloudProvider;
+
+    let mut conn = match crate::db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            }
+        }
+    };
+
+    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
+        match gdrive.rebuild_catalog_from_cloud(&mut conn) {
+            Ok(imported_count) => CommandResult {
+                success: true,
+                data: Some(imported_count),
+                error: None,
+            },
+            Err(e) => CommandResult {
+                success: false,
+                data: None,
+                error: Some(e),
+            },
+        }
+    } else {
+        CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Unsupported cloud provider: {}", provider_type)),
+        }
+    }
+}
