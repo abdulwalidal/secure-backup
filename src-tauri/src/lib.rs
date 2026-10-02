@@ -16,6 +16,14 @@ use commands::{
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    {
+        // Workaround for WebKitGTK / Wayland DMABUF renderer rendering freeze / compositor timeout
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     // Initialize database on startup
     if let Err(e) = db::get_connection() {
         eprintln!("Warning: Failed to initialize SQLite database: {}", e);

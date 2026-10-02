@@ -238,28 +238,31 @@ pub fn get_cloud_providers() -> CommandResult<Vec<crate::cloud::CloudConnectionS
 }
 
 #[tauri::command]
-pub fn connect_google_drive() -> CommandResult<crate::cloud::CloudConnectionStatus> {
-    let mut conn = match crate::db::get_connection() {
-        Ok(c) => c,
-        Err(e) => {
-            return CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            }
-        }
-    };
+pub async fn connect_google_drive() -> CommandResult<crate::cloud::CloudConnectionStatus> {
+    let join_handle = tauri::async_runtime::spawn_blocking(|| {
+        let mut conn = match crate::db::get_connection() {
+            Ok(c) => c,
+            Err(e) => return Err(e),
+        };
 
-    match crate::cloud::gdrive::GoogleDriveProvider::perform_oauth_flow(&mut conn) {
-        Ok(status) => CommandResult {
+        crate::cloud::gdrive::GoogleDriveProvider::perform_oauth_flow(&mut conn)
+    });
+
+    match join_handle.await {
+        Ok(Ok(status)) => CommandResult {
             success: true,
             data: Some(status),
             error: None,
         },
-        Err(e) => CommandResult {
+        Ok(Err(err)) => CommandResult {
             success: false,
             data: None,
-            error: Some(e),
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("OAuth background task failed: {}", join_err)),
         },
     }
 }
