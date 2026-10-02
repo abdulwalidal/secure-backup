@@ -97,3 +97,97 @@ fn test_auth_url_construction() {
     assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A8080"));
     assert!(url.contains("code_challenge_method=S256"));
 }
+
+#[test]
+fn test_remote_snapshot_summary_serialization() {
+    let summary = RemoteSnapshotSummary {
+        snapshot_id: "snap-2026-dr-01".to_string(),
+        source_name: "Personal Vault".to_string(),
+        created_at: "2026-10-02T12:00:00Z".to_string(),
+        total_files: 42,
+        total_size_bytes: 1048576,
+        is_encrypted: true,
+        encryption_algorithm: Some("AES-256-GCM".to_string()),
+        provider: "Google Drive".to_string(),
+        vault_folder_id: "vault-folder-123".to_string(),
+        snapshot_folder_id: "snap-folder-456".to_string(),
+        is_imported: false,
+    };
+
+    let json = serde_json::to_string(&summary).expect("Serialization failed");
+    assert!(json.contains("\"snapshot_id\":\"snap-2026-dr-01\""));
+    assert!(json.contains("\"is_imported\":false"));
+    assert!(json.contains("\"encryption_algorithm\":\"AES-256-GCM\""));
+
+    let deserialized: RemoteSnapshotSummary =
+        serde_json::from_str(&json).expect("Deserialization failed");
+    assert_eq!(deserialized.snapshot_id, summary.snapshot_id);
+    assert_eq!(deserialized.total_files, 42);
+    assert!(deserialized.is_encrypted);
+    assert!(!deserialized.is_imported);
+}
+
+#[test]
+fn test_disaster_recovery_catalog_rebuild_simulation() {
+    let mut conn = setup_test_db();
+
+    // Verify database initially empty
+    let initial_snapshots = crate::db::get_snapshots(&conn).expect("get_snapshots should succeed");
+    assert!(initial_snapshots.is_empty());
+
+    // Construct mock manifest simulated from cloud download
+    let manifest = crate::models::BackupManifest {
+        id: "disaster-recov-001".to_string(),
+        source_path: "/home/user/Documents".to_string(),
+        source_name: "Documents".to_string(),
+        created_at: chrono::Utc::now(),
+        total_files: 2,
+        total_size_bytes: 2048,
+        is_encrypted: true,
+        encryption_algorithm: Some("AES-256-GCM".to_string()),
+        salt_hex: Some("abcdef123456".to_string()),
+        files: vec![
+            crate::models::FileMetadata {
+                relative_path: "secret.txt".to_string(),
+                absolute_path: "/home/user/Documents/secret.txt".to_string(),
+                size_bytes: 1024,
+                sha256_hash: "mockhash1".to_string(),
+                modified_timestamp: 1720000000,
+            },
+            crate::models::FileMetadata {
+                relative_path: "budget.xlsx".to_string(),
+                absolute_path: "/home/user/Documents/budget.xlsx".to_string(),
+                size_bytes: 1024,
+                sha256_hash: "mockhash2".to_string(),
+                modified_timestamp: 1720000100,
+            },
+        ],
+    };
+
+    // Rebuild/import snapshot into SQLite
+    crate::db::insert_snapshot(&mut conn, &manifest, "completed")
+        .expect("insert_snapshot should succeed");
+    crate::db::mark_snapshot_synced(&conn, &manifest.id)
+        .expect("mark_snapshot_synced should succeed");
+
+    crate::db::mark_file_synced(&conn, &manifest.id, "secret.txt", "cloud-file-id-1")
+        .expect("mark_file_synced should succeed");
+    crate::db::mark_file_synced(&conn, &manifest.id, "budget.xlsx", "cloud-file-id-2")
+        .expect("mark_file_synced should succeed");
+
+    // Verify local catalog is fully restored
+    let snapshots = crate::db::get_snapshots(&conn).expect("get_snapshots should succeed");
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].id, "disaster-recov-001");
+    assert!(snapshots[0].cloud_synced);
+
+    let files = crate::db::get_snapshot_files(&conn, "disaster-recov-001")
+        .expect("get_snapshot_files should succeed");
+    assert_eq!(files.len(), 2);
+    assert!(files[0].cloud_synced);
+    assert!(files[1].cloud_synced);
+    assert_eq!(files[0].relative_path, "budget.xlsx");
+    assert_eq!(files[0].cloud_file_id, Some("cloud-file-id-2".to_string()));
+    assert_eq!(files[1].relative_path, "secret.txt");
+    assert_eq!(files[1].cloud_file_id, Some("cloud-file-id-1".to_string()));
+}

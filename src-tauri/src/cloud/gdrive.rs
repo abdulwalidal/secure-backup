@@ -602,7 +602,10 @@ impl GoogleDriveProvider {
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().unwrap_or_default();
-            return Err(format!("Failed to list folder children ({}): {}", status, body));
+            return Err(format!(
+                "Failed to list folder children ({}): {}",
+                status, body
+            ));
         }
 
         #[derive(Deserialize)]
@@ -643,7 +646,10 @@ impl GoogleDriveProvider {
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().unwrap_or_default();
-            return Err(format!("Failed to download remote file ({}): {}", status, body));
+            return Err(format!(
+                "Failed to download remote file ({}): {}",
+                status, body
+            ));
         }
 
         let bytes = res
@@ -821,15 +827,14 @@ impl CloudProvider for GoogleDriveProvider {
         let mut summaries = Vec::new();
 
         for (folder_id, _folder_name) in snapshot_folders {
-            let manifest_files = Self::list_children(
-                &access_token,
-                &folder_id,
-                Some("name = 'manifest.json'"),
-            )?;
+            let manifest_files =
+                Self::list_children(&access_token, &folder_id, Some("name = 'manifest.json'"))?;
 
             if let Some((manifest_id, _)) = manifest_files.first() {
                 if let Ok(manifest_bytes) = Self::download_file_bytes(&access_token, manifest_id) {
-                    if let Ok(manifest) = serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes) {
+                    if let Ok(manifest) =
+                        serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes)
+                    {
                         let is_imported: bool = conn
                             .query_row(
                                 "SELECT 1 FROM snapshots WHERE id = ?1",
@@ -911,15 +916,14 @@ impl CloudProvider for GoogleDriveProvider {
         let mut imported_count = 0;
 
         for (folder_id, _folder_name) in snapshot_folders {
-            let manifest_files = Self::list_children(
-                &access_token,
-                &folder_id,
-                Some("name = 'manifest.json'"),
-            )?;
+            let manifest_files =
+                Self::list_children(&access_token, &folder_id, Some("name = 'manifest.json'"))?;
 
             if let Some((manifest_id, _)) = manifest_files.first() {
                 if let Ok(manifest_bytes) = Self::download_file_bytes(&access_token, manifest_id) {
-                    if let Ok(manifest) = serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes) {
+                    if let Ok(manifest) =
+                        serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes)
+                    {
                         let exists: bool = conn
                             .query_row(
                                 "SELECT 1 FROM snapshots WHERE id = ?1",
@@ -932,13 +936,16 @@ impl CloudProvider for GoogleDriveProvider {
                             crate::db::insert_snapshot(conn, &manifest, "completed")?;
                             crate::db::mark_snapshot_synced(conn, &manifest.id)?;
 
-                            if let Ok(remote_files) = Self::list_children(&access_token, &folder_id, None) {
+                            if let Ok(remote_files) =
+                                Self::list_children(&access_token, &folder_id, None)
+                            {
                                 for file in &manifest.files {
                                     let stored_name = if manifest.is_encrypted {
-                                        let original_name = std::path::Path::new(&file.relative_path)
-                                            .file_name()
-                                            .map(|s| s.to_string_lossy().to_string())
-                                            .unwrap_or_else(|| "file".to_string());
+                                        let original_name =
+                                            std::path::Path::new(&file.relative_path)
+                                                .file_name()
+                                                .map(|s| s.to_string_lossy().to_string())
+                                                .unwrap_or_else(|| "file".to_string());
                                         format!("{}.enc", original_name)
                                     } else {
                                         std::path::Path::new(&file.relative_path)
@@ -947,8 +954,15 @@ impl CloudProvider for GoogleDriveProvider {
                                             .unwrap_or_else(|| "file".to_string())
                                     };
 
-                                    if let Some((remote_id, _)) = remote_files.iter().find(|(_, name)| name == &stored_name) {
-                                        let _ = crate::db::mark_file_synced(conn, &manifest.id, &file.relative_path, remote_id);
+                                    if let Some((remote_id, _)) =
+                                        remote_files.iter().find(|(_, name)| name == &stored_name)
+                                    {
+                                        let _ = crate::db::mark_file_synced(
+                                            conn,
+                                            &manifest.id,
+                                            &file.relative_path,
+                                            remote_id,
+                                        );
                                     }
                                 }
                             }
