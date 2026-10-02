@@ -442,7 +442,9 @@ pub fn restore_snapshot(
         return CommandResult {
             success: false,
             data: None,
-            error: Some("Destination directory does not exist. Please select a valid folder.".to_string()),
+            error: Some(
+                "Destination directory does not exist. Please select a valid folder.".to_string(),
+            ),
         };
     }
     if !dest_path.is_dir() {

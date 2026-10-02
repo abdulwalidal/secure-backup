@@ -14,18 +14,13 @@ use std::time::Instant;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ConflictPolicy {
+    #[default]
     Skip,
     Overwrite,
     Fail,
-}
-
-impl Default for ConflictPolicy {
-    fn default() -> Self {
-        ConflictPolicy::Skip
-    }
 }
 
 impl std::str::FromStr for ConflictPolicy {
@@ -164,12 +159,18 @@ pub fn validate_and_resolve_destination(
     }
 
     // Canonicalize destination root
-    let canonical_dest = dest_root
-        .canonicalize()
-        .map_err(|e| format!("Destination directory {:?} does not exist or cannot be accessed: {}", dest_root, e))?;
+    let canonical_dest = dest_root.canonicalize().map_err(|e| {
+        format!(
+            "Destination directory {:?} does not exist or cannot be accessed: {}",
+            dest_root, e
+        )
+    })?;
 
     if !canonical_dest.is_dir() {
-        return Err(format!("Destination path {:?} is not a directory.", dest_root));
+        return Err(format!(
+            "Destination path {:?} is not a directory.",
+            dest_root
+        ));
     }
 
     let mut target = canonical_dest.clone();
@@ -241,10 +242,7 @@ fn restore_single_payload(
                 });
             }
             ConflictPolicy::Fail => {
-                return Err(format!(
-                    "Destination file already exists: {:?}",
-                    dest_path
-                ));
+                return Err(format!("Destination file already exists: {:?}", dest_path));
             }
             ConflictPolicy::Overwrite => {
                 // Proceed with decrypt & verify FIRST before touching existing file
@@ -288,7 +286,7 @@ fn restore_single_payload(
     // 3. Verify SHA-256 checksum on decrypted plaintext
     if !file_meta.sha256_hash.trim().is_empty() {
         let computed_hash = hash_bytes(&plaintext);
-        if computed_hash.to_ascii_lowercase() != file_meta.sha256_hash.trim().to_ascii_lowercase() {
+        if !computed_hash.eq_ignore_ascii_case(file_meta.sha256_hash.trim()) {
             return Err(format!(
                 "SHA-256 integrity mismatch for '{}': expected {}, computed {}",
                 file_meta.relative_path, file_meta.sha256_hash, computed_hash
@@ -298,9 +296,8 @@ fn restore_single_payload(
 
     // 4. Verification succeeded - now safely write plaintext to destination
     if let Some(parent) = dest_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            format!("Failed to create parent directory {:?}: {}", parent, e)
-        })?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent directory {:?}: {}", parent, e))?;
     }
 
     let bytes_len = plaintext.len() as u64;
@@ -308,9 +305,8 @@ fn restore_single_payload(
     // Use atomic temporary write in same parent directory then rename
     let temp_dest = dest_path.with_extension(format!("sbtmp_{}", rand::random::<u32>()));
     {
-        let mut temp_file = File::create(&temp_dest).map_err(|e| {
-            format!("Failed to create temporary file {:?}: {}", temp_dest, e)
-        })?;
+        let mut temp_file = File::create(&temp_dest)
+            .map_err(|e| format!("Failed to create temporary file {:?}: {}", temp_dest, e))?;
         temp_file.write_all(&plaintext).map_err(|e| {
             let _ = fs::remove_file(&temp_dest);
             format!("Failed to write plaintext {:?}: {}", temp_dest, e)
@@ -366,7 +362,10 @@ pub fn restore_local_snapshot(
 
     for file_meta in &manifest.files {
         // Validate target path
-        let dest_path = match validate_and_resolve_destination(options.destination_dir, &file_meta.relative_path) {
+        let dest_path = match validate_and_resolve_destination(
+            options.destination_dir,
+            &file_meta.relative_path,
+        ) {
             Ok(p) => p,
             Err(e) => {
                 files_failed += 1;
@@ -398,7 +397,10 @@ pub fn restore_local_snapshot(
                     relative_path: file_meta.relative_path.clone(),
                     status: "failed".to_string(),
                     size_bytes: file_meta.size_bytes,
-                    error: Some(format!("Source backup file missing on disk for '{}'", file_meta.relative_path)),
+                    error: Some(format!(
+                        "Source backup file missing on disk for '{}'",
+                        file_meta.relative_path
+                    )),
                 });
                 continue;
             }
@@ -515,7 +517,9 @@ pub fn restore_cloud_snapshot(
     } else {
         None
     }
-    .ok_or_else(|| "Google Drive 'Secure Backup Vault' not found. Please sync a backup first.".to_string())?;
+    .ok_or_else(|| {
+        "Google Drive 'Secure Backup Vault' not found. Please sync a backup first.".to_string()
+    })?;
 
     // 2. Locate snapshot subfolder in vault
     let snapshot_folder_query = format!(
@@ -527,7 +531,10 @@ pub fn restore_cloud_snapshot(
     let snap_search_res = client
         .get("https://www.googleapis.com/drive/v3/files")
         .bearer_auth(&access_token)
-        .query(&[("q", snapshot_folder_query.as_str()), ("fields", "files(id, name)")])
+        .query(&[
+            ("q", snapshot_folder_query.as_str()),
+            ("fields", "files(id, name)"),
+        ])
         .send()
         .map_err(|e| format!("Snapshot search in Google Drive failed: {}", e))?;
 
@@ -539,7 +546,12 @@ pub fn restore_cloud_snapshot(
     } else {
         None
     }
-    .ok_or_else(|| format!("Snapshot folder '{}' not found in Google Drive vault.", snapshot_id))?;
+    .ok_or_else(|| {
+        format!(
+            "Snapshot folder '{}' not found in Google Drive vault.",
+            snapshot_id
+        )
+    })?;
 
     // 3. List files inside snapshot folder
     let children = GoogleDriveProvider::list_children(&access_token, &snapshot_folder_id, None)?;
@@ -548,7 +560,12 @@ pub fn restore_cloud_snapshot(
     let manifest_file = children
         .iter()
         .find(|(_, name)| name == "manifest.json")
-        .ok_or_else(|| format!("No manifest.json found in Google Drive snapshot '{}'.", snapshot_id))?;
+        .ok_or_else(|| {
+            format!(
+                "No manifest.json found in Google Drive snapshot '{}'.",
+                snapshot_id
+            )
+        })?;
 
     let manifest_bytes = GoogleDriveProvider::download_file_bytes(&access_token, &manifest_file.0)?;
     let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
@@ -563,7 +580,10 @@ pub fn restore_cloud_snapshot(
 
     for file_meta in &manifest.files {
         // Validate destination path
-        let dest_path = match validate_and_resolve_destination(options.destination_dir, &file_meta.relative_path) {
+        let dest_path = match validate_and_resolve_destination(
+            options.destination_dir,
+            &file_meta.relative_path,
+        ) {
             Ok(p) => p,
             Err(e) => {
                 files_failed += 1;
@@ -603,26 +623,30 @@ pub fn restore_cloud_snapshot(
                     relative_path: file_meta.relative_path.clone(),
                     status: "failed".to_string(),
                     size_bytes: file_meta.size_bytes,
-                    error: Some(format!("Remote file object missing in cloud snapshot for '{}'", file_meta.relative_path)),
+                    error: Some(format!(
+                        "Remote file object missing in cloud snapshot for '{}'",
+                        file_meta.relative_path
+                    )),
                 });
                 continue;
             }
         };
 
         // Download directly into memory
-        let file_bytes = match GoogleDriveProvider::download_file_bytes(&access_token, remote_file_id) {
-            Ok(b) => b,
-            Err(e) => {
-                files_failed += 1;
-                items.push(RestoreFileItem {
-                    relative_path: file_meta.relative_path.clone(),
-                    status: "failed".to_string(),
-                    size_bytes: file_meta.size_bytes,
-                    error: Some(format!("Failed to download file from Google Drive: {}", e)),
-                });
-                continue;
-            }
-        };
+        let file_bytes =
+            match GoogleDriveProvider::download_file_bytes(&access_token, remote_file_id) {
+                Ok(b) => b,
+                Err(e) => {
+                    files_failed += 1;
+                    items.push(RestoreFileItem {
+                        relative_path: file_meta.relative_path.clone(),
+                        status: "failed".to_string(),
+                        size_bytes: file_meta.size_bytes,
+                        error: Some(format!("Failed to download file from Google Drive: {}", e)),
+                    });
+                    continue;
+                }
+            };
 
         // Decrypt, verify, and write
         match restore_single_payload(

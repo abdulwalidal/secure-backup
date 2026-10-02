@@ -1,11 +1,15 @@
 use super::*;
-use crate::encryption::{encrypt_file, generate_salt, derive_key};
+use crate::encryption::{derive_key, encrypt_file, generate_salt};
 use crate::hashing::hash_bytes;
 use crate::models::FileMetadata;
 use std::fs;
 
 fn create_temp_dest_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("sb_test_restore_{}_{}", name, rand::random::<u32>()));
+    let dir = std::env::temp_dir().join(format!(
+        "sb_test_restore_{}_{}",
+        name,
+        rand::random::<u32>()
+    ));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -31,8 +35,13 @@ fn test_path_traversal_rejections() {
     assert!(validate_and_resolve_destination(&dest_dir, "c:file.txt").is_err());
 
     // 4. Windows UNC paths
-    assert!(validate_and_resolve_destination(&dest_dir, "\\\\attacker-server\\share\\malware.exe").is_err());
-    assert!(validate_and_resolve_destination(&dest_dir, "//attacker-server/share/malware.exe").is_err());
+    assert!(
+        validate_and_resolve_destination(&dest_dir, "\\\\attacker-server\\share\\malware.exe")
+            .is_err()
+    );
+    assert!(
+        validate_and_resolve_destination(&dest_dir, "//attacker-server/share/malware.exe").is_err()
+    );
 
     // 5. Empty or null byte paths
     assert!(validate_and_resolve_destination(&dest_dir, "").is_err());
@@ -44,7 +53,9 @@ fn test_path_traversal_rejections() {
     // 7. Legitimate relative paths should succeed
     let valid = validate_and_resolve_destination(&dest_dir, "sub/dir/safe_file.txt");
     assert!(valid.is_ok());
-    assert!(valid.unwrap().starts_with(&dest_dir.canonicalize().unwrap()));
+    assert!(valid
+        .unwrap()
+        .starts_with(&dest_dir.canonicalize().unwrap()));
 
     let _ = fs::remove_dir_all(&dest_dir);
 }
@@ -137,7 +148,11 @@ fn test_restore_empty_file_unicode_and_spaces() {
     let spaces_src = tmp_src.join("my secret document backup.txt");
 
     fs::write(&empty_src, b"").unwrap();
-    fs::write(&unicode_src, "SecureBackup supports UTF-8: 東京 & München".as_bytes()).unwrap();
+    fs::write(
+        &unicode_src,
+        "SecureBackup supports UTF-8: 東京 & München".as_bytes(),
+    )
+    .unwrap();
     fs::write(&spaces_src, b"Content with spaces in filename").unwrap();
 
     let empty_enc = tmp_src.join("empty.enc");
@@ -158,7 +173,8 @@ fn test_restore_empty_file_unicode_and_spaces() {
         sha256_hash: hash_bytes(b""),
         modified_timestamp: 1700000000,
     };
-    let dest_empty = validate_and_resolve_destination(&dest_dir, &meta_empty.relative_path).unwrap();
+    let dest_empty =
+        validate_and_resolve_destination(&dest_dir, &meta_empty.relative_path).unwrap();
     let res_empty = restore_single_payload(
         &fs::read(&empty_enc).unwrap(),
         &meta_empty,
@@ -179,7 +195,8 @@ fn test_restore_empty_file_unicode_and_spaces() {
         sha256_hash: hash_bytes(&fs::read(&unicode_src).unwrap()),
         modified_timestamp: 1700000000,
     };
-    let dest_unicode = validate_and_resolve_destination(&dest_dir, &meta_unicode.relative_path).unwrap();
+    let dest_unicode =
+        validate_and_resolve_destination(&dest_dir, &meta_unicode.relative_path).unwrap();
     let res_unicode = restore_single_payload(
         &fs::read(&unicode_enc).unwrap(),
         &meta_unicode,
@@ -190,7 +207,10 @@ fn test_restore_empty_file_unicode_and_spaces() {
         Some(pw),
     );
     assert!(res_unicode.is_ok());
-    assert_eq!(fs::read(&dest_unicode).unwrap(), fs::read(&unicode_src).unwrap());
+    assert_eq!(
+        fs::read(&dest_unicode).unwrap(),
+        fs::read(&unicode_src).unwrap()
+    );
 
     // 3. Spaces in filename
     let meta_spaces = FileMetadata {
@@ -200,7 +220,8 @@ fn test_restore_empty_file_unicode_and_spaces() {
         sha256_hash: hash_bytes(&fs::read(&spaces_src).unwrap()),
         modified_timestamp: 1700000000,
     };
-    let dest_spaces = validate_and_resolve_destination(&dest_dir, &meta_spaces.relative_path).unwrap();
+    let dest_spaces =
+        validate_and_resolve_destination(&dest_dir, &meta_spaces.relative_path).unwrap();
     let res_spaces = restore_single_payload(
         &fs::read(&spaces_enc).unwrap(),
         &meta_spaces,
@@ -211,7 +232,10 @@ fn test_restore_empty_file_unicode_and_spaces() {
         Some(pw),
     );
     assert!(res_spaces.is_ok());
-    assert_eq!(fs::read(&dest_spaces).unwrap(), fs::read(&spaces_src).unwrap());
+    assert_eq!(
+        fs::read(&dest_spaces).unwrap(),
+        fs::read(&spaces_src).unwrap()
+    );
 
     let _ = fs::remove_dir_all(&dest_dir);
     let _ = fs::remove_dir_all(&tmp_src);
@@ -517,7 +541,9 @@ fn test_missing_source_file_and_missing_snapshot() {
     let backup_result = crate::backup::create_local_backup(&tmp_source, Some("pass")).unwrap();
 
     // Manually delete the .enc file
-    let enc_path = Path::new(&backup_result.target_directory).join("data").join("deleted_later.txt.enc");
+    let enc_path = Path::new(&backup_result.target_directory)
+        .join("data")
+        .join("deleted_later.txt.enc");
     let _ = fs::remove_file(enc_path);
 
     let restore_result = restore_local_snapshot(&backup_result.backup_id, &options).unwrap();
