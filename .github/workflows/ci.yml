@@ -11,7 +11,8 @@ on:
       - develop
 
 jobs:
-  test:
+  frontend:
+    name: "Frontend Typecheck & Production Build"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -23,10 +24,38 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Typecheck and build frontend
+        run: npm run build
+
+  rust-fmt:
+    name: "Rust Formatting Check (rustfmt)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+
+  rust-clippy:
+    name: "Rust Clippy Linter"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -38,14 +67,124 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Run Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      - name: Typecheck and build frontend
-        run: npm run build
+  test-crypto:
+    name: "Unit Tests: Cryptography & Key Derivation"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Check Rust formatting
-        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Run Rust unit tests
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Run Cryptography and Hashing Tests
+        run: |
+          cargo test encryption:: hashing:: --manifest-path src-tauri/Cargo.toml --verbose
+
+  test-db:
+    name: "Unit Tests: SQLite Ledger & Migrations"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Run SQLite Database Tests
+        run: |
+          cargo test db:: --manifest-path src-tauri/Cargo.toml --verbose
+
+  test-backup:
+    name: "Unit Tests: Local Vault & Backup Engine"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Run Backup Engine Tests
+        run: |
+          cargo test backup:: --manifest-path src-tauri/Cargo.toml --verbose
+
+  test-cloud:
+    name: "Unit Tests: Cloud Sync & Disaster Recovery"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Run Cloud and Disaster Recovery Tests
+        run: |
+          cargo test cloud:: --manifest-path src-tauri/Cargo.toml --verbose
+
+  test:
+    name: "Full Regression & Integration Suite"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Run Complete Test Suite
         run: cargo test --manifest-path src-tauri/Cargo.toml --verbose
