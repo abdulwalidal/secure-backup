@@ -8,6 +8,8 @@ pub struct FileMetadata {
     pub size_bytes: u64,
     pub sha256_hash: String,
     pub modified_timestamp: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored_filename: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +24,8 @@ pub struct BackupManifest {
     pub encryption_algorithm: Option<String>,
     pub salt_hex: Option<String>,
     pub files: Vec<FileMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_version: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

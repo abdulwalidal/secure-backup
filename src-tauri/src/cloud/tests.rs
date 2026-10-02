@@ -153,6 +153,7 @@ fn test_disaster_recovery_catalog_rebuild_simulation() {
                 size_bytes: 1024,
                 sha256_hash: "mockhash1".to_string(),
                 modified_timestamp: 1720000000,
+                stored_filename: Some("550e8400-e29b-41d4-a716-446655440000.enc".to_string()),
             },
             crate::models::FileMetadata {
                 relative_path: "budget.xlsx".to_string(),
@@ -160,8 +161,10 @@ fn test_disaster_recovery_catalog_rebuild_simulation() {
                 size_bytes: 1024,
                 sha256_hash: "mockhash2".to_string(),
                 modified_timestamp: 1720000100,
+                stored_filename: Some("6ba7b810-9dad-11d1-80b4-00c04fd430c8.enc".to_string()),
             },
         ],
+        manifest_version: Some(2),
     };
 
     // Rebuild/import snapshot into SQLite

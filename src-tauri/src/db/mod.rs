@@ -140,7 +140,9 @@ pub fn insert_snapshot(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "file".to_string());
 
-            let stored_filename = if manifest.is_encrypted {
+            let stored_filename = if let Some(ref sf) = file.stored_filename {
+                sf.clone()
+            } else if manifest.is_encrypted {
                 format!("{}.enc", original_name)
             } else {
                 original_name

@@ -89,6 +89,7 @@ fn test_restore_single_and_multiple_files_with_nested_directories() {
         size_bytes: content1.len() as u64,
         sha256_hash: hash_bytes(content1),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let meta2 = FileMetadata {
         relative_path: "sub/folder/nested.md".to_string(),
@@ -96,6 +97,7 @@ fn test_restore_single_and_multiple_files_with_nested_directories() {
         size_bytes: content2.len() as u64,
         sha256_hash: hash_bytes(content2),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
 
     let dest1 = validate_and_resolve_destination(&dest_dir, &meta1.relative_path).unwrap();
@@ -170,6 +172,7 @@ fn test_restore_empty_file_unicode_and_spaces() {
         size_bytes: 0,
         sha256_hash: hash_bytes(b""),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest_empty =
         validate_and_resolve_destination(&dest_dir, &meta_empty.relative_path).unwrap();
@@ -192,6 +195,7 @@ fn test_restore_empty_file_unicode_and_spaces() {
         size_bytes: fs::metadata(&unicode_src).unwrap().len(),
         sha256_hash: hash_bytes(&fs::read(&unicode_src).unwrap()),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest_unicode =
         validate_and_resolve_destination(&dest_dir, &meta_unicode.relative_path).unwrap();
@@ -217,6 +221,7 @@ fn test_restore_empty_file_unicode_and_spaces() {
         size_bytes: fs::metadata(&spaces_src).unwrap().len(),
         sha256_hash: hash_bytes(&fs::read(&spaces_src).unwrap()),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest_spaces =
         validate_and_resolve_destination(&dest_dir, &meta_spaces.relative_path).unwrap();
@@ -259,6 +264,7 @@ fn test_wrong_passphrase_rejection() {
         size_bytes: 28,
         sha256_hash: hash_bytes(b"Sensitive financial document"),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest = validate_and_resolve_destination(&dest_dir, &meta.relative_path).unwrap();
     let mut cached_key = None;
@@ -303,6 +309,7 @@ fn test_corrupted_ciphertext_and_invalid_header_rejection() {
         size_bytes: 30,
         sha256_hash: hash_bytes(b"Original tamper detection text"),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest = validate_and_resolve_destination(&dest_dir, &meta.relative_path).unwrap();
     let mut cached_key = None;
@@ -361,6 +368,7 @@ fn test_sha256_integrity_mismatch_rejection() {
         size_bytes: 9,
         sha256_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest = validate_and_resolve_destination(&dest_dir, &meta_wrong_hash.relative_path).unwrap();
     let mut cached_key = None;
@@ -403,6 +411,7 @@ fn test_conflict_policies_and_overwrite_protection() {
         size_bytes: new_content.len() as u64,
         sha256_hash: hash_bytes(new_content),
         modified_timestamp: 1700000000,
+        stored_filename: None,
     };
     let dest = validate_and_resolve_destination(&dest_dir, &meta.relative_path).unwrap();
 
@@ -539,10 +548,14 @@ fn test_missing_source_file_and_missing_snapshot() {
     let backup_result = crate::backup::create_local_backup(&tmp_source, Some("pass")).unwrap();
 
     // Manually delete the .enc file
+    let stored_name = backup_result.manifest.files[0]
+        .stored_filename
+        .as_ref()
+        .expect("stored_filename must be present");
     let enc_path = Path::new(&backup_result.target_directory)
         .join("data")
-        .join("deleted_later.txt.enc");
-    let _ = fs::remove_file(enc_path);
+        .join(stored_name);
+    fs::remove_file(enc_path).unwrap();
 
     let restore_options = RestoreOptions {
         destination_dir: &dest_dir,
@@ -730,7 +743,9 @@ fn test_restore_legacy_plaintext_manifest_backward_compatibility() {
             size_bytes: fs::metadata(&file).unwrap().len(),
             sha256_hash: hash_bytes(&fs::read(&file).unwrap()),
             modified_timestamp: 1720000000,
+            stored_filename: None,
         }],
+        manifest_version: None,
     };
 
     // Save as plaintext manifest.json (legacy format)
@@ -754,4 +769,240 @@ fn test_restore_legacy_plaintext_manifest_backward_compatibility() {
     let _ = fs::remove_dir_all(&tmp_src);
     let _ = fs::remove_dir_all(&dest_dir);
     let _ = fs::remove_dir_all(&snapshot_dir);
+}
+
+#[test]
+fn test_is_valid_opaque_stored_filename_validation() {
+    // Valid UUIDv4 + .enc
+    let valid_uuid_v4 = format!("{}.enc", uuid::Uuid::new_v4());
+    assert!(is_valid_opaque_stored_filename(&valid_uuid_v4));
+    assert!(is_valid_opaque_stored_filename(
+        "550e8400-e29b-41d4-a716-446655440000.enc"
+    ));
+
+    // Traversal and separators
+    assert!(!is_valid_opaque_stored_filename("../../evil.enc"));
+    assert!(!is_valid_opaque_stored_filename("..\\evil.enc"));
+    assert!(!is_valid_opaque_stored_filename("/etc/passwd"));
+    assert!(!is_valid_opaque_stored_filename(
+        "C:\\Windows\\system32.enc"
+    ));
+    assert!(!is_valid_opaque_stored_filename(
+        "\\\\server\\share\\evil.enc"
+    ));
+
+    // Plaintext / legacy names
+    assert!(!is_valid_opaque_stored_filename("photo.jpg.enc"));
+    assert!(!is_valid_opaque_stored_filename("document.pdf.enc"));
+    assert!(!is_valid_opaque_stored_filename("random_name.enc"));
+
+    // UUID without .enc
+    assert!(!is_valid_opaque_stored_filename(
+        "550e8400-e29b-41d4-a716-446655440000"
+    ));
+
+    // Non-v4 UUID (version 1)
+    assert!(!is_valid_opaque_stored_filename(
+        "550e8400-e29b-11d4-a716-446655440000.enc"
+    ));
+}
+
+#[test]
+fn test_malicious_stored_filename_in_manifest_rejected_at_restore() {
+    let tmp_src = create_temp_dest_dir("malicious_stored_src");
+    let dest_dir = create_temp_dest_dir("malicious_stored_dest");
+    let file = tmp_src.join("data.txt");
+    fs::write(&file, b"sample content").unwrap();
+
+    let pw = "malicious-stored-pw";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    // Tamper with manifest to inject malicious stored_filename
+    let snapshot_dir = Path::new(&backup_res.target_directory);
+    let enc_manifest_path = snapshot_dir.join("manifest.json.enc");
+
+    let enc_bytes = fs::read(&enc_manifest_path).unwrap();
+    let dec_bytes = crate::encryption::decrypt_archive_payload(&enc_bytes, pw).unwrap();
+    let mut manifest: BackupManifest = serde_json::from_slice(&dec_bytes).unwrap();
+
+    // Inject traversal in stored_filename
+    manifest.files[0].stored_filename = Some("../../etc/shadow.enc".to_string());
+
+    let tampered_json = serde_json::to_string_pretty(&manifest).unwrap();
+    let re_enc_bytes =
+        crate::encryption::encrypt_archive_payload_with_passphrase(tampered_json.as_bytes(), pw)
+            .unwrap();
+    fs::write(&enc_manifest_path, re_enc_bytes).unwrap();
+
+    let options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+
+    let res = restore_local_snapshot(&backup_res.backup_id, &options).unwrap();
+    assert_eq!(res.files_failed, 1);
+    assert_eq!(res.files_restored, 0);
+    assert!(res.items[0]
+        .error
+        .as_ref()
+        .unwrap()
+        .contains("Invalid or malicious stored_filename"));
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
+
+#[test]
+fn test_complete_legacy_backup_with_nested_structure_restore() {
+    let tmp_src = create_temp_dest_dir("legacy_nested_src");
+    let pw = "legacy-passphrase";
+    let salt = generate_salt();
+    let key = derive_key(pw, &salt).unwrap();
+
+    let file1_content = b"Legacy photo JPEG binary data";
+    let file2_content = b"Legacy document PDF binary data";
+
+    let file1 = tmp_src.join("photo.jpg");
+    let file2 = tmp_src.join("document.pdf");
+    fs::write(&file1, file1_content).unwrap();
+    fs::write(&file2, file2_content).unwrap();
+
+    let snap_id = "20261001_100000_legacy_nested";
+    let backups_base = crate::backup::get_backups_dir();
+    let snapshot_dir = backups_base.join(snap_id);
+    let data_dir = snapshot_dir.join("data");
+    let nested_data_dir = data_dir.join("folder");
+    fs::create_dir_all(&nested_data_dir).unwrap();
+
+    // Legacy backup layout: data/photo.jpg.enc and data/folder/document.pdf.enc
+    let enc1 = data_dir.join("photo.jpg.enc");
+    let enc2 = nested_data_dir.join("document.pdf.enc");
+    encrypt_file(&file1, &enc1, &key, &salt).unwrap();
+    encrypt_file(&file2, &enc2, &key, &salt).unwrap();
+
+    let manifest = BackupManifest {
+        id: snap_id.to_string(),
+        source_path: tmp_src.to_string_lossy().to_string(),
+        source_name: "legacy_nested".to_string(),
+        created_at: chrono::Utc::now(),
+        total_files: 2,
+        total_size_bytes: (file1_content.len() + file2_content.len()) as u64,
+        is_encrypted: true,
+        encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+        salt_hex: Some(hex::encode(salt)),
+        files: vec![
+            FileMetadata {
+                relative_path: "photo.jpg".to_string(),
+                absolute_path: file1.to_string_lossy().to_string(),
+                size_bytes: file1_content.len() as u64,
+                sha256_hash: hash_bytes(file1_content),
+                modified_timestamp: 1720000000,
+                stored_filename: None,
+            },
+            FileMetadata {
+                relative_path: "folder/document.pdf".to_string(),
+                absolute_path: file2.to_string_lossy().to_string(),
+                size_bytes: file2_content.len() as u64,
+                sha256_hash: hash_bytes(file2_content),
+                modified_timestamp: 1720000000,
+                stored_filename: None,
+            },
+        ],
+        manifest_version: None,
+    };
+
+    let manifest_json = serde_json::to_string_pretty(&manifest).unwrap();
+    fs::write(snapshot_dir.join("manifest.json"), manifest_json).unwrap();
+
+    let dest_dir = create_temp_dest_dir("legacy_nested_dest");
+    let options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+
+    let restore_res = restore_local_snapshot(snap_id, &options).unwrap();
+    assert_eq!(restore_res.files_restored, 2);
+    assert_eq!(restore_res.files_failed, 0);
+
+    assert_eq!(fs::read(dest_dir.join("photo.jpg")).unwrap(), file1_content);
+    assert_eq!(
+        fs::read(dest_dir.join("folder").join("document.pdf")).unwrap(),
+        file2_content
+    );
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&snapshot_dir);
+}
+
+#[test]
+fn test_opaque_end_to_end_restore_with_deep_hierarchy_and_duplicate_names() {
+    let tmp_src = create_temp_dest_dir("deep_dup_src");
+
+    let p1 = tmp_src.join("nested/level1/level2/level3");
+    let p2 = tmp_src.join("other/level1/level2/level3");
+    let p3 = tmp_src.join("spaces folder");
+
+    fs::create_dir_all(&p1).unwrap();
+    fs::create_dir_all(&p2).unwrap();
+    fs::create_dir_all(&p3).unwrap();
+
+    let content1 = b"Data from nested level3";
+    let content2 = b"Different data from other level3";
+    let content3 = b"Confidential PDF with spaces in path";
+
+    fs::write(p1.join("data.txt"), content1).unwrap();
+    fs::write(p2.join("data.txt"), content2).unwrap();
+    fs::write(p3.join("my confidential file.pdf"), content3).unwrap();
+
+    let pw = "deep-dup-passphrase";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    // Verify opaque storage: flat data directory
+    let data_dir = Path::new(&backup_res.target_directory).join("data");
+    let entries: Vec<_> = fs::read_dir(&data_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(entries.len(), 3);
+    for entry in &entries {
+        let name = entry.to_string_lossy();
+        assert!(name.ends_with(".enc"));
+        assert!(!name.contains("data"));
+        assert!(!name.contains("nested"));
+        assert!(!name.contains("confidential"));
+    }
+
+    // Now perform full restore
+    let dest_dir = create_temp_dest_dir("deep_dup_dest");
+    let options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+
+    let restore_res = restore_local_snapshot(&backup_res.backup_id, &options).unwrap();
+    assert_eq!(restore_res.files_restored, 3);
+    assert_eq!(restore_res.files_failed, 0);
+
+    // Verify all original paths recreated accurately with authentic contents
+    assert_eq!(
+        fs::read(dest_dir.join("nested/level1/level2/level3/data.txt")).unwrap(),
+        content1
+    );
+    assert_eq!(
+        fs::read(dest_dir.join("other/level1/level2/level3/data.txt")).unwrap(),
+        content2
+    );
+    assert_eq!(
+        fs::read(dest_dir.join("spaces folder/my confidential file.pdf")).unwrap(),
+        content3
+    );
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
 }

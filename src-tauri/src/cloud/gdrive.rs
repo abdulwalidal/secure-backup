@@ -576,6 +576,20 @@ impl GoogleDriveProvider {
         Ok(true)
     }
 
+    pub fn parse_timestamp_from_snapshot_id(snapshot_id: &str) -> Option<String> {
+        if snapshot_id.len() >= 15 {
+            if let Ok(ndt) =
+                chrono::NaiveDateTime::parse_from_str(&snapshot_id[..15], "%Y%m%d_%H%M%S")
+            {
+                return Some(
+                    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc)
+                        .to_rfc3339(),
+                );
+            }
+        }
+        None
+    }
+
     /// Lists children of a given parent folder, optionally filtering by mimeType or name.
     pub fn list_children(
         access_token: &str,
@@ -720,8 +734,21 @@ impl CloudProvider for GoogleDriveProvider {
         let data_dir = snapshot_dir.join("data");
 
         for file in &file_records {
+            if file.cloud_synced {
+                files_uploaded += 1;
+                total_bytes_uploaded += file.size_bytes;
+                continue;
+            }
+
             let file_path = if data_dir.join(&file.stored_filename).exists() {
                 data_dir.join(&file.stored_filename)
+            } else if data_dir
+                .join(format!("{}.enc", file.relative_path))
+                .exists()
+            {
+                data_dir.join(format!("{}.enc", file.relative_path))
+            } else if data_dir.join(&file.relative_path).exists() {
+                data_dir.join(&file.relative_path)
             } else if snapshot_dir.join(&file.relative_path).exists() {
                 snapshot_dir.join(&file.relative_path)
             } else {
@@ -893,10 +920,13 @@ impl CloudProvider for GoogleDriveProvider {
                     });
                 } else {
                     // Safe presentation for fresh install without guessing sensitive contents
+                    let created_at_display = Self::parse_timestamp_from_snapshot_id(&folder_name)
+                        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
                     summaries.push(super::RemoteSnapshotSummary {
                         snapshot_id: folder_name.clone(),
                         source_name: "Encrypted Snapshot (metadata locked)".to_string(),
-                        created_at: chrono::Utc::now().to_rfc3339(),
+                        created_at: created_at_display,
                         total_files: 0,
                         total_size_bytes: 0,
                         is_encrypted: true,
@@ -918,10 +948,14 @@ impl CloudProvider for GoogleDriveProvider {
                             )
                             .is_ok();
 
+                        let created_at_display =
+                            Self::parse_timestamp_from_snapshot_id(&folder_name)
+                                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
                         summaries.push(super::RemoteSnapshotSummary {
                             snapshot_id: folder_name.clone(),
                             source_name: "Encrypted Snapshot (metadata locked)".to_string(),
-                            created_at: chrono::Utc::now().to_rfc3339(),
+                            created_at: created_at_display,
                             total_files: 0,
                             total_size_bytes: 0,
                             is_encrypted: true,

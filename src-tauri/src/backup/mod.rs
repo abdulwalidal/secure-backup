@@ -50,6 +50,7 @@ pub fn scan_directory<P: AsRef<Path>>(source: P) -> io::Result<Vec<FileMetadata>
                 size_bytes,
                 sha256_hash,
                 modified_timestamp,
+                stored_filename: None,
             });
         }
     }
@@ -79,18 +80,27 @@ pub fn create_local_backup<P: AsRef<Path>>(
         .unwrap_or_else(|| "backup".to_string());
 
     // 1. Scan and hash all files
-    let files = scan_directory(source_path)?;
+    let mut files = scan_directory(source_path)?;
     let total_size_bytes: u64 = files.iter().map(|f| f.size_bytes).sum();
     let total_files = files.len();
 
+    let is_encrypted = passphrase.is_some() && !passphrase.unwrap().trim().is_empty();
+
     // 2. Prepare backup snapshot folder
-    let backup_id = format!("{}_{}", Utc::now().format("%Y%m%d_%H%M%S"), source_name);
+    let backup_id = if is_encrypted {
+        format!(
+            "{}_{}",
+            Utc::now().format("%Y%m%d_%H%M%S"),
+            uuid::Uuid::new_v4()
+        )
+    } else {
+        format!("{}_{}", Utc::now().format("%Y%m%d_%H%M%S"), source_name)
+    };
     let backups_base = get_backups_dir();
     let snapshot_dir = backups_base.join(&backup_id);
     let snapshot_data_dir = snapshot_dir.join("data");
     fs::create_dir_all(&snapshot_data_dir)?;
 
-    let is_encrypted = passphrase.is_some() && !passphrase.unwrap().trim().is_empty();
     let mut salt_hex = None;
     let mut encryption_algorithm = None;
 
@@ -103,13 +113,11 @@ pub fn create_local_backup<P: AsRef<Path>>(
         salt_hex = Some(hex::encode(salt));
         encryption_algorithm = Some("AES-256-GCM / Argon2id".to_string());
 
-        // 3. Encrypt each file preserving relative structure into *.enc
-        for file_meta in &files {
-            let enc_rel_path = format!("{}.enc", file_meta.relative_path);
-            let dest_path = snapshot_data_dir.join(&enc_rel_path);
-            if let Some(parent) = dest_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
+        // 3. Encrypt each file into an opaque <UUIDv4>.enc flat file
+        for file_meta in &mut files {
+            let stored_name = format!("{}.enc", uuid::Uuid::new_v4());
+            file_meta.stored_filename = Some(stored_name.clone());
+            let dest_path = snapshot_data_dir.join(&stored_name);
             encrypt_file(&file_meta.absolute_path, &dest_path, &key, &salt)?;
         }
     } else {
@@ -135,6 +143,7 @@ pub fn create_local_backup<P: AsRef<Path>>(
         encryption_algorithm,
         salt_hex,
         files,
+        manifest_version: if is_encrypted { Some(2) } else { Some(1) },
     };
 
     let manifest_json = serde_json::to_string_pretty(&manifest)
@@ -222,6 +231,7 @@ pub fn list_local_backups() -> io::Result<Vec<BackupManifest>> {
                     encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
                     salt_hex: None,
                     files: Vec::new(),
+                    manifest_version: Some(2),
                 });
             }
         }
@@ -267,6 +277,11 @@ fn get_manifest_from_db(
                 encryption_algorithm: row.get(7)?,
                 salt_hex: row.get(8)?,
                 files: Vec::new(),
+                manifest_version: if is_encrypted_int != 0 {
+                    Some(2)
+                } else {
+                    Some(1)
+                },
             })
         })
         .map_err(|e| e.to_string())?;
@@ -280,6 +295,7 @@ fn get_manifest_from_db(
             size_bytes: f.size_bytes,
             sha256_hash: f.sha256_hash,
             modified_timestamp: f.modified_timestamp,
+            stored_filename: Some(f.stored_filename),
         })
         .collect();
 

@@ -18,6 +18,7 @@ fn sample_manifest(id: &str, file_count: usize, encrypted: bool) -> BackupManife
             size_bytes: 1024 * (i as u64 + 1),
             sha256_hash: format!("fakehash{:064x}", i),
             modified_timestamp: 1710000000 + i as u64,
+            stored_filename: None,
         });
     }
 
@@ -40,6 +41,7 @@ fn sample_manifest(id: &str, file_count: usize, encrypted: bool) -> BackupManife
             None
         },
         files,
+        manifest_version: if encrypted { Some(2) } else { Some(1) },
     }
 }
 
@@ -182,4 +184,38 @@ fn test_cloud_sync_ledger() {
     mark_snapshot_synced(&conn, "snap-sync-test").unwrap();
     let snapshots_updated = get_snapshots(&conn).unwrap();
     assert!(snapshots_updated[0].cloud_synced);
+}
+
+#[test]
+fn test_opaque_stored_filename_persistence() {
+    let mut conn = setup_test_db();
+    let opaque_uuid = format!("{}.enc", uuid::Uuid::new_v4());
+
+    let manifest = BackupManifest {
+        id: "snap-opaque-db-test".to_string(),
+        source_path: "/home/user/docs".to_string(),
+        source_name: "docs".to_string(),
+        created_at: Utc::now(),
+        total_files: 1,
+        total_size_bytes: 1024,
+        is_encrypted: true,
+        encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+        salt_hex: Some("112233445566".to_string()),
+        files: vec![FileMetadata {
+            relative_path: "secret/plan.pdf".to_string(),
+            absolute_path: "/home/user/docs/secret/plan.pdf".to_string(),
+            size_bytes: 1024,
+            sha256_hash: "hash123".to_string(),
+            modified_timestamp: 1720000000,
+            stored_filename: Some(opaque_uuid.clone()),
+        }],
+        manifest_version: Some(2),
+    };
+
+    insert_snapshot(&mut conn, &manifest, "completed").unwrap();
+
+    let files = get_snapshot_files(&conn, "snap-opaque-db-test").unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].relative_path, "secret/plan.pdf");
+    assert_eq!(files[0].stored_filename, opaque_uuid);
 }

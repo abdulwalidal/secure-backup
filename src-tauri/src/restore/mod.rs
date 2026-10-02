@@ -213,6 +213,20 @@ pub fn validate_and_resolve_destination(
     Ok(target)
 }
 
+/// Validates that an opaque stored filename matches the expected UUIDv4 format (`<UUIDv4>.enc`).
+/// Rejects path traversal (`..`), path separators (`/`, `\`), Windows paths, and non-UUIDv4 names.
+pub fn is_valid_opaque_stored_filename(name: &str) -> bool {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return false;
+    }
+    if let Some(stem) = name.strip_suffix(".enc") {
+        if let Ok(u) = uuid::Uuid::parse_str(stem) {
+            return u.get_version() == Some(uuid::Version::Random);
+        }
+    }
+    false
+}
+
 enum FileRestoreOutcome {
     Restored { bytes: u64 },
     Skipped { reason: String },
@@ -417,14 +431,47 @@ pub fn restore_local_snapshot(
         };
 
         // Locate source file on disk
-        let candidates = [
-            data_dir.join(format!("{}.enc", file_meta.relative_path)),
-            data_dir.join(&file_meta.relative_path),
-            snapshot_dir.join(format!("{}.enc", file_meta.relative_path)),
-            snapshot_dir.join(&file_meta.relative_path),
-        ];
+        let mut invalid_stored_filename_error = None;
+        let mut src_file_path = None;
 
-        let src_file_path = candidates.iter().find(|p| p.exists());
+        if let Some(ref stored_name) = file_meta.stored_filename {
+            if !is_valid_opaque_stored_filename(stored_name) {
+                invalid_stored_filename_error = Some(format!(
+                    "Invalid or malicious stored_filename in manifest: '{}'",
+                    stored_name
+                ));
+            } else {
+                let candidate = data_dir.join(stored_name);
+                if candidate.exists() {
+                    src_file_path = Some(candidate);
+                }
+            }
+        }
+
+        if let Some(err) = invalid_stored_filename_error {
+            files_failed += 1;
+            items.push(RestoreFileItem {
+                relative_path: file_meta.relative_path.clone(),
+                status: "failed".to_string(),
+                size_bytes: file_meta.size_bytes,
+                error: Some(err),
+            });
+            continue;
+        }
+
+        // If not found via stored_filename (e.g. legacy backup), use legacy candidates
+        let src_file_path = match src_file_path {
+            Some(p) => Some(p),
+            None => {
+                let candidates = [
+                    data_dir.join(format!("{}.enc", file_meta.relative_path)),
+                    data_dir.join(&file_meta.relative_path),
+                    snapshot_dir.join(format!("{}.enc", file_meta.relative_path)),
+                    snapshot_dir.join(&file_meta.relative_path),
+                ];
+                candidates.into_iter().find(|p| p.exists())
+            }
+        };
 
         let src_path = match src_file_path {
             Some(p) => p,
@@ -443,7 +490,7 @@ pub fn restore_local_snapshot(
             }
         };
 
-        let file_bytes = match fs::read(src_path) {
+        let file_bytes = match fs::read(&src_path) {
             Ok(b) => b,
             Err(e) => {
                 files_failed += 1;
@@ -662,44 +709,71 @@ pub fn restore_cloud_snapshot(
             }
         };
 
-        // Determine expected remote filename
-        let original_name = Path::new(&file_meta.relative_path)
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "file".to_string());
-
-        let candidates = if manifest.is_encrypted {
-            vec![
-                format!("{}.enc", original_name),
-                format!("{}.enc", file_meta.relative_path),
-                original_name.clone(),
-            ]
-        } else {
-            vec![original_name.clone(), file_meta.relative_path.clone()]
-        };
-
-        let remote_file = children.iter().find(|(_, name)| candidates.contains(name));
-
-        let remote_file_id = match remote_file {
-            Some((id, _)) => id,
-            None => {
+        // Locate remote file object in Google Drive
+        let remote_file_id = if let Some(ref stored_name) = file_meta.stored_filename {
+            if !is_valid_opaque_stored_filename(stored_name) {
                 files_failed += 1;
                 items.push(RestoreFileItem {
                     relative_path: file_meta.relative_path.clone(),
                     status: "failed".to_string(),
                     size_bytes: file_meta.size_bytes,
                     error: Some(format!(
-                        "Remote file object missing in cloud snapshot for '{}'",
-                        file_meta.relative_path
+                        "Invalid or malicious stored_filename in manifest: '{}'",
+                        stored_name
                     )),
                 });
                 continue;
+            }
+            // Direct lookup by opaque stored_filename
+            children
+                .iter()
+                .find(|(_, name)| name == stored_name)
+                .map(|(id, _)| id.clone())
+        } else {
+            None
+        };
+
+        let remote_file_id = match remote_file_id {
+            Some(id) => id,
+            None => {
+                // Clearly separated legacy fallback: match by candidate filenames
+                let original_name = Path::new(&file_meta.relative_path)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "file".to_string());
+
+                let candidates = if manifest.is_encrypted {
+                    vec![
+                        format!("{}.enc", original_name),
+                        format!("{}.enc", file_meta.relative_path),
+                        original_name.clone(),
+                    ]
+                } else {
+                    vec![original_name.clone(), file_meta.relative_path.clone()]
+                };
+
+                match children.iter().find(|(_, name)| candidates.contains(name)) {
+                    Some((id, _)) => id.clone(),
+                    None => {
+                        files_failed += 1;
+                        items.push(RestoreFileItem {
+                            relative_path: file_meta.relative_path.clone(),
+                            status: "failed".to_string(),
+                            size_bytes: file_meta.size_bytes,
+                            error: Some(format!(
+                                "Remote file object missing in cloud snapshot for '{}'",
+                                file_meta.relative_path
+                            )),
+                        });
+                        continue;
+                    }
+                }
             }
         };
 
         // Download directly into memory
         let file_bytes =
-            match GoogleDriveProvider::download_file_bytes(&access_token, remote_file_id) {
+            match GoogleDriveProvider::download_file_bytes(&access_token, &remote_file_id) {
                 Ok(b) => b,
                 Err(e) => {
                     files_failed += 1;

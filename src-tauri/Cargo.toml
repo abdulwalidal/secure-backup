@@ -37,6 +37,7 @@ url = "2"
 tiny_http = "0.12"
 base64 = "0.22"
 open = "5"
+uuid = { version = "1", features = ["v4", "serde"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
