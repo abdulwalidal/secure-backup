@@ -53,9 +53,7 @@ fn test_path_traversal_rejections() {
     // 7. Legitimate relative paths should succeed
     let valid = validate_and_resolve_destination(&dest_dir, "sub/dir/safe_file.txt");
     assert!(valid.is_ok());
-    assert!(valid
-        .unwrap()
-        .starts_with(&dest_dir.canonicalize().unwrap()));
+    assert!(valid.unwrap().starts_with(dest_dir.canonicalize().unwrap()));
 
     let _ = fs::remove_dir_all(&dest_dir);
 }
