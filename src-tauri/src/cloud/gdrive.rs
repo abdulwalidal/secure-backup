@@ -282,6 +282,67 @@ impl GoogleDriveProvider {
             .ok_or_else(|| "No email address found in Google profile".to_string())
     }
 
+    /// Refreshes the Google OAuth access token using the stored refresh_token.
+    pub fn refresh_access_token(conn: &Connection) -> Result<String, String> {
+        let refresh_token = get_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN)?
+            .ok_or_else(|| "No refresh token available to renew session.".to_string())?;
+
+        let client_id = Self::get_client_id(conn);
+        let client_secret = Self::get_client_secret(conn);
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let mut form_params = vec![
+            ("client_id", client_id.as_str()),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token.as_str()),
+        ];
+
+        if let Some(ref sec) = client_secret {
+            form_params.push(("client_secret", sec.as_str()));
+        }
+
+        let res = client
+            .post(GOOGLE_TOKEN_ENDPOINT)
+            .form(&form_params)
+            .send()
+            .map_err(|e| format!("Token refresh network request failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().unwrap_or_default();
+            return Err(format!("Token refresh rejected ({}): {}", status, body));
+        }
+
+        let token_data: TokenResponse = res
+            .json()
+            .map_err(|e| format!("Failed to parse refreshed token JSON: {}", e))?;
+
+        set_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN, &token_data.access_token)?;
+
+        if let Some(new_rt) = token_data.refresh_token {
+            set_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN, &new_rt)?;
+        }
+
+        Ok(token_data.access_token)
+    }
+
+    /// Retrieves the current access token, or automatically refreshes it using the refresh token.
+    pub fn get_valid_access_token(conn: &Connection) -> Result<String, String> {
+        if let Some(token) = get_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN)? {
+            return Ok(token);
+        }
+
+        if get_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN)?.is_some() {
+            return Self::refresh_access_token(conn);
+        }
+
+        Err("Google Drive is not connected. Please connect in Settings first.".to_string())
+    }
+
     /// Finds an existing folder by name inside a parent folder, or creates it.
     pub fn find_or_create_folder(
         access_token: &str,
@@ -481,9 +542,7 @@ impl CloudProvider for GoogleDriveProvider {
         conn: &Connection,
         snapshot_id: &str,
     ) -> Result<super::UploadSummary, String> {
-        let access_token = get_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN)?.ok_or_else(|| {
-            "Google Drive is not connected. Please connect in Settings first.".to_string()
-        })?;
+        let access_token = Self::get_valid_access_token(conn)?;
 
         // 1. Locate local snapshot folder
         let snapshot_dir = crate::backup::get_backups_dir().join(snapshot_id);
