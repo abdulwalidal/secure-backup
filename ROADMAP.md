@@ -65,11 +65,11 @@ This document outlines the phased engineering roadmap and long-term milestones f
 - [ ] Automated network retry handling with exponential backoff
 
 ### Phase 10: Complete File Restoration Engine
-- [ ] Snapshot download and extraction workflow from local and remote vaults
-- [ ] Passphrase authentication and Argon2id key derivation verification
-- [ ] AES-256-GCM decryption with AEAD tag integrity validation
-- [ ] Post-restore SHA-256 fingerprint verification against snapshot manifest
-- [ ] Selective and full-directory restoration options
+- [x] Snapshot download and extraction workflow from local and remote vaults
+- [x] Passphrase authentication and Argon2id key derivation verification
+- [x] AES-256-GCM decryption with AEAD tag integrity validation
+- [x] Post-restore SHA-256 fingerprint verification against snapshot manifest
+- [x] Selective and full-directory restoration options
 
 ### Phase 11: Hash-Based Incremental Backups
 - [ ] Differential snapshot creation by comparing SHA-256 hashes against prior snapshots

@@ -5,12 +5,13 @@ pub mod db;
 pub mod encryption;
 pub mod hashing;
 pub mod models;
+pub mod restore;
 
 use commands::{
     connect_google_drive, disconnect_cloud_provider, discover_cloud_snapshots, get_backup_history,
     get_cloud_providers, get_database_snapshot_files, get_database_snapshots, get_database_stats,
-    inspect_folder, rebuild_database_from_cloud, start_local_backup, sync_snapshot_to_cloud,
-    test_encryption_roundtrip,
+    inspect_folder, rebuild_database_from_cloud, restore_snapshot, start_local_backup,
+    sync_snapshot_to_cloud, test_encryption_roundtrip,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,7 +37,8 @@ pub fn run() {
             disconnect_cloud_provider,
             sync_snapshot_to_cloud,
             discover_cloud_snapshots,
-            rebuild_database_from_cloud
+            rebuild_database_from_cloud,
+            restore_snapshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -69,6 +69,26 @@ interface RemoteSnapshotSummary {
   is_imported: boolean;
 }
 
+interface RestoreFileItem {
+  relative_path: string;
+  status: "restored" | "skipped" | "failed";
+  size_bytes: number;
+  error?: string;
+}
+
+interface RestoreResult {
+  snapshot_id: string;
+  destination_directory: string;
+  source: "local" | "google_drive";
+  total_files: number;
+  files_restored: number;
+  files_skipped: number;
+  files_failed: number;
+  total_bytes_restored: number;
+  elapsed_millis: number;
+  items: RestoreFileItem[];
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -167,6 +187,32 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const historyContainer = document.getElementById("history-container") as HTMLElement | null;
   const btnRefreshHistory = document.getElementById("btn-refresh-history") as HTMLButtonElement | null;
+
+  // Restore Modal elements
+  const restoreModal = document.getElementById("restore-modal") as HTMLElement | null;
+  const btnCloseRestoreModal = document.getElementById("btn-close-restore-modal") as HTMLButtonElement | null;
+  const btnCancelRestore = document.getElementById("btn-cancel-restore") as HTMLButtonElement | null;
+  const btnExecuteRestore = document.getElementById("btn-execute-restore") as HTMLButtonElement | null;
+  const btnChooseRestoreDest = document.getElementById("btn-choose-restore-dest") as HTMLButtonElement | null;
+  const restoreDestinationDisplay = document.getElementById("restore-destination-display") as HTMLElement | null;
+  const restorePassphrase = document.getElementById("restore-passphrase") as HTMLInputElement | null;
+  const btnToggleRestorePass = document.getElementById("btn-toggle-restore-pass") as HTMLButtonElement | null;
+  const restorePassphraseContainer = document.getElementById("restore-passphrase-container") as HTMLElement | null;
+  const modalSnapshotId = document.getElementById("modal-snapshot-id") as HTMLElement | null;
+  const modalSnapshotSource = document.getElementById("modal-snapshot-source") as HTMLElement | null;
+  const modalSnapshotFiles = document.getElementById("modal-snapshot-files") as HTMLElement | null;
+  const modalSnapshotSize = document.getElementById("modal-snapshot-size") as HTMLElement | null;
+  const modalSnapshotEnc = document.getElementById("modal-snapshot-enc") as HTMLElement | null;
+  const restoreProgressContainer = document.getElementById("restore-progress-container") as HTMLElement | null;
+  const restoreProgressBar = document.getElementById("restore-progress-bar") as HTMLElement | null;
+  const restoreProgressStatus = document.getElementById("restore-progress-status") as HTMLElement | null;
+  const restoreProgressPercent = document.getElementById("restore-progress-percent") as HTMLElement | null;
+  const restoreResultReport = document.getElementById("restore-result-report") as HTMLElement | null;
+
+  let activeRestoreSnapshotId: string | null = null;
+  let activeRestoreSource: "local" | "google_drive" = "local";
+  let activeRestoreDestination: string | null = null;
+  let activeRestoreEncrypted: boolean = false;
 
   // --- Passphrase visibility, generation & clipboard helpers ---
 
@@ -640,7 +686,15 @@ window.addEventListener("DOMContentLoaded", () => {
               ${fileListHtml}
               ${moreFilesCount}
             </div>
-            <div class="history-card-footer" style="display: flex; justify-content: flex-end; margin-top: 6px;">
+            <div class="history-card-footer" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+              <button class="btn btn-primary btn-sm btn-restore-snapshot" data-snapshot-id="${escapeHtml(m.id)}" data-source="local" data-name="${escapeHtml(m.source_name)}" data-path="${escapeHtml(m.source_path)}" data-files="${m.total_files}" data-size="${m.total_size_bytes}" data-encrypted="${m.is_encrypted}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                </svg>
+                Restore
+              </button>
               <button class="btn btn-secondary btn-sm btn-sync-snapshot" data-snapshot-id="${escapeHtml(m.id)}">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
                   <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
@@ -652,6 +706,20 @@ window.addEventListener("DOMContentLoaded", () => {
         `;
       })
       .join("");
+
+    // Attach restore button handlers
+    historyContainer.querySelectorAll<HTMLButtonElement>(".btn-restore-snapshot").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-snapshot-id") || "";
+        const source = "local";
+        const name = btn.getAttribute("data-name") || "Backup";
+        const path = btn.getAttribute("data-path") || "";
+        const files = parseInt(btn.getAttribute("data-files") || "0", 10);
+        const size = parseInt(btn.getAttribute("data-size") || "0", 10);
+        const isEncrypted = btn.getAttribute("data-encrypted") === "true";
+        openRestoreModal(id, source, name, path, files, size, isEncrypted);
+      });
+    });
 
     // Attach sync button handlers
     historyContainer.querySelectorAll<HTMLButtonElement>(".btn-sync-snapshot").forEach((btn) => {
@@ -906,10 +974,34 @@ window.addEventListener("DOMContentLoaded", () => {
                 <span>Total Size: <strong>${formatBytes(snap.total_size_bytes)}</strong></span>
                 <span>Destination: <strong>${escapeHtml(snap.provider)}</strong></span>
               </div>
+              <div class="dr-snapshot-footer" style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                <button class="btn btn-primary btn-sm btn-restore-cloud-snapshot" data-snapshot-id="${escapeHtml(snap.snapshot_id)}" data-source="google_drive" data-name="${escapeHtml(snap.source_name)}" data-path="Google Drive Vault" data-files="${snap.total_files}" data-size="${snap.total_size_bytes}" data-encrypted="${snap.is_encrypted}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                  </svg>
+                  Restore from Cloud
+                </button>
+              </div>
             </div>
           `;
         })
         .join("");
+
+      // Attach DR restore handlers
+      drSnapshotsContainer.querySelectorAll<HTMLButtonElement>(".btn-restore-cloud-snapshot").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-snapshot-id") || "";
+          const source = "google_drive";
+          const name = btn.getAttribute("data-name") || "Cloud Backup";
+          const path = btn.getAttribute("data-path") || "Google Drive Vault";
+          const files = parseInt(btn.getAttribute("data-files") || "0", 10);
+          const size = parseInt(btn.getAttribute("data-size") || "0", 10);
+          const isEncrypted = btn.getAttribute("data-encrypted") === "true";
+          openRestoreModal(id, source, name, path, files, size, isEncrypted);
+        });
+      });
     } catch (e) {
       console.error("Cloud discovery error:", e);
       showDrStatus("An error occurred while querying remote cloud snapshots.", "error");
@@ -972,6 +1064,210 @@ window.addEventListener("DOMContentLoaded", () => {
       `;
     }
   }
+
+  // --- Restore Modal Controller ---
+
+  function openRestoreModal(
+    snapshotId: string,
+    source: "local" | "google_drive",
+    name: string,
+    path: string,
+    files: number,
+    size: number,
+    isEncrypted: boolean
+  ) {
+    activeRestoreSnapshotId = snapshotId;
+    activeRestoreSource = source;
+    activeRestoreDestination = null;
+    activeRestoreEncrypted = isEncrypted;
+
+    if (modalSnapshotId) modalSnapshotId.textContent = snapshotId;
+    if (modalSnapshotSource) modalSnapshotSource.textContent = `${name} (${path})`;
+    if (modalSnapshotFiles) modalSnapshotFiles.textContent = `${files} file(s)`;
+    if (modalSnapshotSize) modalSnapshotSize.textContent = formatBytes(size);
+    if (modalSnapshotEnc) {
+      modalSnapshotEnc.textContent = isEncrypted ? "AES-256-GCM" : "Plaintext";
+      modalSnapshotEnc.className = isEncrypted ? "badge-enc" : "badge-plain";
+    }
+
+    if (restoreDestinationDisplay) {
+      restoreDestinationDisplay.textContent = "No destination folder selected";
+      restoreDestinationDisplay.style.color = "var(--text-muted)";
+    }
+    if (restorePassphrase) restorePassphrase.value = "";
+    if (restorePassphraseContainer) {
+      restorePassphraseContainer.style.display = isEncrypted ? "block" : "none";
+    }
+    if (restoreProgressContainer) restoreProgressContainer.style.display = "none";
+    if (restoreResultReport) {
+      restoreResultReport.style.display = "none";
+      restoreResultReport.innerHTML = "";
+    }
+    if (btnExecuteRestore) {
+      btnExecuteRestore.disabled = false;
+      btnExecuteRestore.innerHTML = `
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+        </svg>
+        <span>Start Restoration</span>
+      `;
+    }
+
+    if (restoreModal) restoreModal.style.display = "flex";
+  }
+
+  function closeRestoreModal() {
+    if (restoreModal) restoreModal.style.display = "none";
+    activeRestoreSnapshotId = null;
+    activeRestoreDestination = null;
+  }
+
+  btnCloseRestoreModal?.addEventListener("click", closeRestoreModal);
+  btnCancelRestore?.addEventListener("click", closeRestoreModal);
+
+  btnToggleRestorePass?.addEventListener("click", () => {
+    if (!restorePassphrase) return;
+    const isPass = restorePassphrase.type === "password";
+    restorePassphrase.type = isPass ? "text" : "password";
+    btnToggleRestorePass.innerHTML = isPass ? EYE_OFF_SVG : EYE_OPEN_SVG;
+  });
+
+  btnChooseRestoreDest?.addEventListener("click", async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Restore Destination Directory",
+      });
+      if (typeof selected === "string" && selected) {
+        activeRestoreDestination = selected;
+        if (restoreDestinationDisplay) {
+          restoreDestinationDisplay.textContent = selected;
+          restoreDestinationDisplay.style.color = "var(--text-main)";
+        }
+      }
+    } catch (e) {
+      console.error("Failed to select restore folder:", e);
+    }
+  });
+
+  btnExecuteRestore?.addEventListener("click", async () => {
+    if (!activeRestoreSnapshotId) {
+      alert("No snapshot selected.");
+      return;
+    }
+    if (!activeRestoreDestination) {
+      alert("Please select a destination directory for restoration.");
+      return;
+    }
+
+    const passphrase = restorePassphrase?.value.trim() || null;
+    if (activeRestoreEncrypted && !passphrase) {
+      alert("Please enter the decryption passphrase for this encrypted snapshot.");
+      return;
+    }
+
+    const conflictPolicyEl = document.querySelector<HTMLInputElement>(
+      'input[name="conflict-policy"]:checked'
+    );
+    const conflictPolicy = conflictPolicyEl?.value || "skip";
+
+    if (btnExecuteRestore) {
+      btnExecuteRestore.disabled = true;
+      btnExecuteRestore.innerHTML = `
+        <svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+          <path d="M12 2a10 10 0 0 1 10 10"/>
+        </svg>
+        <span>Restoring...</span>
+      `;
+    }
+
+    if (restoreProgressContainer) restoreProgressContainer.style.display = "block";
+    if (restoreProgressBar) restoreProgressBar.style.width = "40%";
+    if (restoreProgressStatus) {
+      restoreProgressStatus.textContent =
+        activeRestoreSource === "google_drive"
+          ? "Downloading encrypted objects from Google Drive..."
+          : "Reading archive and verifying cryptographic integrity...";
+    }
+    if (restoreProgressPercent) restoreProgressPercent.textContent = "40%";
+
+    try {
+      const res = await invoke<CommandResult<RestoreResult>>("restore_snapshot", {
+        snapshotId: activeRestoreSnapshotId,
+        destinationDir: activeRestoreDestination,
+        passphrase,
+        conflictPolicy,
+        sourceType: activeRestoreSource,
+      });
+
+      if (restoreProgressBar) restoreProgressBar.style.width = "100%";
+      if (restoreProgressPercent) restoreProgressPercent.textContent = "100%";
+
+      if (res.success && res.data) {
+        const d = res.data;
+        if (restoreProgressStatus) restoreProgressStatus.textContent = "Restoration Complete";
+
+        let errorDetails = "";
+        if (d.files_failed > 0) {
+          const failedItems = d.items
+            .filter((i) => i.status === "failed")
+            .map(
+              (i) =>
+                `<li><strong>${escapeHtml(i.relative_path)}:</strong> ${escapeHtml(i.error || "Unknown error")}</li>`
+            )
+            .join("");
+          errorDetails = `<ul style="margin-top: 8px; padding-left: 20px; font-size: 11px;">${failedItems}</ul>`;
+        }
+
+        if (restoreResultReport) {
+          restoreResultReport.style.display = "block";
+          restoreResultReport.className =
+            d.files_failed === 0 ? "restore-result-box success" : "restore-result-box error";
+          restoreResultReport.innerHTML = `
+            <div><strong>${d.files_failed === 0 ? "Success!" : "Restored with issues"}</strong> Snapshot restoration completed in ${d.elapsed_millis}ms.</div>
+            <div style="margin-top: 6px; font-size: 12px;">
+              <span>Restored: <strong>${d.files_restored}</strong></span> |
+              <span>Skipped: <strong>${d.files_skipped}</strong></span> |
+              <span>Failed: <strong>${d.files_failed}</strong></span> |
+              <span>Total Restored: <strong>${formatBytes(d.total_bytes_restored)}</strong></span>
+            </div>
+            ${errorDetails}
+          `;
+        }
+      } else {
+        if (restoreProgressStatus) restoreProgressStatus.textContent = "Restoration Failed";
+        if (restoreResultReport) {
+          restoreResultReport.style.display = "block";
+          restoreResultReport.className = "restore-result-box error";
+          restoreResultReport.innerHTML = `<div><strong>Restoration Failed:</strong> ${escapeHtml(res.error || "Unknown error occurred.")}</div>`;
+        }
+      }
+    } catch (err: any) {
+      console.error("Restore error:", err);
+      if (restoreProgressStatus) restoreProgressStatus.textContent = "Restoration Error";
+      if (restoreResultReport) {
+        restoreResultReport.style.display = "block";
+        restoreResultReport.className = "restore-result-box error";
+        restoreResultReport.innerHTML = `<div><strong>Unexpected Error:</strong> ${escapeHtml(String(err))}</div>`;
+      }
+    } finally {
+      if (btnExecuteRestore) {
+        btnExecuteRestore.disabled = false;
+        btnExecuteRestore.innerHTML = `
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+          </svg>
+          <span>Done</span>
+        `;
+      }
+    }
+  });
 
   btnSelectFolder?.addEventListener("click", handleSelectFolder);
   btnClearSelection?.addEventListener("click", handleClearSelection);

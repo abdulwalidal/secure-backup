@@ -22,6 +22,13 @@ pub fn hash_file<P: AsRef<Path>>(path: P) -> io::Result<String> {
     Ok(format!("{:x}", result))
 }
 
+/// Computes the SHA-256 hash of in-memory bytes.
+pub fn hash_bytes(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

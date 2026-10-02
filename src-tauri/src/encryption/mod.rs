@@ -99,29 +99,15 @@ pub fn encrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
     Ok(())
 }
 
-/// Decrypts an encrypted file produced by `encrypt_file` using the provided passphrase.
-pub fn decrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
-    src: P,
-    dest: Q,
-    password: &str,
-) -> io::Result<()> {
-    let mut file = File::open(src)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-
+/// Decrypts the raw byte payload of a SECBKP01 encrypted archive.
+pub fn decrypt_archive_payload(buffer: &[u8], password: &str) -> Result<Vec<u8>, String> {
     let header_len = MAGIC_HEADER.len() + SALT_LEN + NONCE_LEN;
     if buffer.len() < header_len {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "File is too small to be a valid Secure Backup encrypted archive.",
-        ));
+        return Err("File is too small to be a valid Secure Backup encrypted archive.".to_string());
     }
 
     if &buffer[..8] != MAGIC_HEADER {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid file format: missing Secure Backup magic header.",
-        ));
+        return Err("Invalid file format: missing Secure Backup magic header.".to_string());
     }
 
     let mut salt = [0u8; SALT_LEN];
@@ -132,11 +118,54 @@ pub fn decrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
 
     let ciphertext = &buffer[36..];
 
-    let key =
-        derive_key(password, &salt).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    let key = derive_key(password, &salt)?;
+    decrypt_bytes(ciphertext, &nonce, &key)
+}
 
-    let plaintext = decrypt_bytes(ciphertext, &nonce, &key)
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
+/// Extracts the 16-byte Argon2id salt from a SECBKP01 encrypted archive header.
+pub fn extract_salt_from_archive(buffer: &[u8]) -> Result<[u8; SALT_LEN], String> {
+    let header_len = MAGIC_HEADER.len() + SALT_LEN + NONCE_LEN;
+    if buffer.len() < header_len {
+        return Err("File is too small to be a valid Secure Backup encrypted archive.".to_string());
+    }
+    if &buffer[..8] != MAGIC_HEADER {
+        return Err("Invalid file format: missing Secure Backup magic header.".to_string());
+    }
+    let mut salt = [0u8; SALT_LEN];
+    salt.copy_from_slice(&buffer[8..24]);
+    Ok(salt)
+}
+
+/// Decrypts a SECBKP01 archive payload using an already-derived AES-256 key.
+pub fn decrypt_archive_payload_with_key(buffer: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, String> {
+    let header_len = MAGIC_HEADER.len() + SALT_LEN + NONCE_LEN;
+    if buffer.len() < header_len {
+        return Err("File is too small to be a valid Secure Backup encrypted archive.".to_string());
+    }
+
+    if &buffer[..8] != MAGIC_HEADER {
+        return Err("Invalid file format: missing Secure Backup magic header.".to_string());
+    }
+
+    let mut nonce = [0u8; NONCE_LEN];
+    nonce.copy_from_slice(&buffer[24..36]);
+
+    let ciphertext = &buffer[36..];
+    decrypt_bytes(ciphertext, &nonce, key)
+}
+
+/// Decrypts an encrypted file produced by `encrypt_file` using the provided passphrase.
+pub fn decrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
+    src: P,
+    dest: Q,
+    password: &str,
+) -> io::Result<()> {
+    let mut file = File::open(src)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    let plaintext = decrypt_archive_payload(&buffer, password)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     let mut out = File::create(dest)?;
     out.write_all(&plaintext)?;

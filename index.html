@@ -377,9 +377,10 @@
           </div>
 
           <!-- Future Target Directory Restoration Card -->
+          <!-- Target Directory Restoration Card -->
           <div class="card" style="margin-top: 20px;">
             <div class="card-header">
-              <div class="card-icon">
+              <div class="card-icon secure-accent">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="7 10 12 15 17 10"/>
                   <line x1="12" y1="15" x2="12" y2="3"/>
@@ -387,8 +388,8 @@
                 </svg>
               </div>
               <div>
-                <h2 class="card-title">Target Directory File Decryption</h2>
-                <p class="card-desc">Point-in-time ciphertext downloading and AES-256-GCM restoration to your chosen directory will activate in Phase 10.</p>
+                <h2 class="card-title">Target Directory File Decryption & Restoration</h2>
+                <p class="card-desc">Click "Restore" on any local snapshot in Backups or remote snapshot above to select a restore directory, enter your passphrase, and safely decrypt verified files.</p>
               </div>
             </div>
           </div>
@@ -456,6 +457,126 @@
           </div>
         </section>
       </main>
+    </div>
+
+    <!-- Restore Modal Dialog -->
+    <div id="restore-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <div class="card-icon secure-accent" style="width: 34px; height: 34px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="modal-title">Restore Backup Snapshot</h2>
+              <p class="modal-subtitle" id="restore-modal-sub">Decrypt and safely restore snapshot files.</p>
+            </div>
+          </div>
+          <button id="btn-close-restore-modal" class="btn-icon" title="Close">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Snapshot Info Card -->
+          <div class="restore-snapshot-summary">
+            <div><span style="color: var(--text-muted);">Snapshot ID:</span> <strong id="modal-snapshot-id" class="mono">-</strong></div>
+            <div style="margin-top: 5px;"><span style="color: var(--text-muted);">Source Path:</span> <strong id="modal-snapshot-source">-</strong></div>
+            <div style="margin-top: 6px; display: flex; gap: 16px; font-size: 12px; color: var(--text-muted);">
+              <span>Files: <strong id="modal-snapshot-files" style="color: var(--text-main);">-</strong></span>
+              <span>Total Size: <strong id="modal-snapshot-size" style="color: var(--text-main);">-</strong></span>
+              <span>Security: <strong id="modal-snapshot-enc" style="color: var(--text-main);">-</strong></span>
+            </div>
+          </div>
+
+          <!-- Destination folder selection -->
+          <div class="form-group" style="margin-top: 18px;">
+            <label class="form-label">Restore Destination Directory</label>
+            <div class="folder-select-group">
+              <div id="restore-destination-display" class="folder-path-box mono" style="color: var(--text-muted); font-size: 12px;">No destination folder selected</div>
+              <button id="btn-choose-restore-dest" class="btn btn-secondary">Browse...</button>
+            </div>
+            <span class="form-hint">Destination directory must be selected. Strict path traversal protection prevents writes outside this folder.</span>
+          </div>
+
+          <!-- Passphrase input (conditionally displayed if encrypted) -->
+          <div id="restore-passphrase-container" class="form-group" style="margin-top: 18px;">
+            <label class="form-label" for="restore-passphrase">Decryption Passphrase</label>
+            <div class="input-with-button">
+              <input
+                type="password"
+                id="restore-passphrase"
+                class="form-control mono"
+                placeholder="Enter the passphrase used to seal this snapshot"
+                autocomplete="off"
+              />
+              <button id="btn-toggle-restore-pass" type="button" class="btn-input-action" title="Toggle visibility">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+            <span class="form-hint">Required for Argon2id key derivation and AES-256-GCM authentication.</span>
+          </div>
+
+          <!-- Conflict Policy Selection -->
+          <div class="form-group" style="margin-top: 18px;">
+            <label class="form-label">File Conflict Policy</label>
+            <div class="conflict-policy-options">
+              <label class="radio-option">
+                <input type="radio" name="conflict-policy" value="skip" checked />
+                <div>
+                  <div class="radio-label">Skip Existing Files (Recommended)</div>
+                  <div class="radio-desc">Preserves any files already present in the destination directory.</div>
+                </div>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="conflict-policy" value="overwrite" />
+                <div>
+                  <div class="radio-label">Overwrite Existing Files</div>
+                  <div class="radio-desc">Replaces existing files only after successful GCM tag and SHA-256 validation.</div>
+                </div>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="conflict-policy" value="fail" />
+                <div>
+                  <div class="radio-label">Fail on Conflict</div>
+                  <div class="radio-desc">Stops restoring a file if a destination file with the same name exists.</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Progress bar & status display -->
+          <div id="restore-progress-container" style="display: none; margin-top: 18px;">
+            <div class="restore-progress-header">
+              <span id="restore-progress-status">Restoring files...</span>
+              <span id="restore-progress-percent" class="mono">0%</span>
+            </div>
+            <div class="progress-bar-bg" style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; margin-top: 6px;">
+              <div id="restore-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.2s ease;"></div>
+            </div>
+          </div>
+
+          <!-- Result report container -->
+          <div id="restore-result-report" style="display: none; margin-top: 18px;"></div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-cancel-restore" class="btn btn-secondary">Cancel</button>
+          <button id="btn-execute-restore" class="btn btn-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            </svg>
+            <span>Start Restoration</span>
+          </button>
+        </div>
+      </div>
     </div>
   </body>
 </html>

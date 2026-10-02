@@ -420,3 +420,133 @@ pub fn rebuild_database_from_cloud(provider_type: String) -> CommandResult<usize
         }
     }
 }
+
+#[tauri::command]
+pub fn restore_snapshot(
+    snapshot_id: String,
+    destination_dir: String,
+    passphrase: Option<String>,
+    conflict_policy: Option<String>,
+    source_type: Option<String>,
+) -> CommandResult<crate::restore::RestoreResult> {
+    use crate::restore::{
+        restore_cloud_snapshot, restore_local_snapshot, ConflictPolicy, RestoreOptions,
+        RestoreSource,
+    };
+    use std::path::Path;
+    use std::str::FromStr;
+
+    // 1. Validate destination path
+    let dest_path = Path::new(&destination_dir);
+    if !dest_path.exists() {
+        return CommandResult {
+            success: false,
+            data: None,
+            error: Some("Destination directory does not exist. Please select a valid folder.".to_string()),
+        };
+    }
+    if !dest_path.is_dir() {
+        return CommandResult {
+            success: false,
+            data: None,
+            error: Some("Selected destination path is not a directory.".to_string()),
+        };
+    }
+
+    // 2. Parse conflict policy strongly typed enum
+    let policy = match conflict_policy.as_deref() {
+        Some(s) => match ConflictPolicy::from_str(s) {
+            Ok(p) => p,
+            Err(e) => {
+                return CommandResult {
+                    success: false,
+                    data: None,
+                    error: Some(e),
+                }
+            }
+        },
+        None => ConflictPolicy::default(),
+    };
+
+    // 3. Parse and validate restore source enum (Do not blindly trust source_type!)
+    let parsed_source = match source_type.as_deref() {
+        Some(s) => match RestoreSource::from_str(s) {
+            Ok(src) => src,
+            Err(e) => {
+                return CommandResult {
+                    success: false,
+                    data: None,
+                    error: Some(e),
+                }
+            }
+        },
+        None => {
+            let local_dir = crate::backup::get_backups_dir().join(&snapshot_id);
+            if local_dir.exists() {
+                RestoreSource::Local
+            } else {
+                RestoreSource::GoogleDrive
+            }
+        }
+    };
+
+    let options = RestoreOptions {
+        destination_dir: dest_path,
+        passphrase: passphrase.as_deref().filter(|s| !s.trim().is_empty()),
+        conflict_policy: policy,
+    };
+
+    // 4. Validate that snapshot source is supported and available
+    match parsed_source {
+        RestoreSource::Local => {
+            let local_dir = crate::backup::get_backups_dir().join(&snapshot_id);
+            if !local_dir.exists() {
+                return CommandResult {
+                    success: false,
+                    data: None,
+                    error: Some(format!(
+                        "Snapshot '{}' is not available in local storage. Use Google Drive restore instead.",
+                        snapshot_id
+                    )),
+                };
+            }
+            match restore_local_snapshot(&snapshot_id, &options) {
+                Ok(res) => CommandResult {
+                    success: true,
+                    data: Some(res),
+                    error: None,
+                },
+                Err(e) => CommandResult {
+                    success: false,
+                    data: None,
+                    error: Some(e),
+                },
+            }
+        }
+        RestoreSource::GoogleDrive => {
+            let conn = match crate::db::get_connection() {
+                Ok(c) => c,
+                Err(e) => {
+                    return CommandResult {
+                        success: false,
+                        data: None,
+                        error: Some(format!("Database error: {}", e)),
+                    }
+                }
+            };
+
+            match restore_cloud_snapshot(&conn, &snapshot_id, &options) {
+                Ok(res) => CommandResult {
+                    success: true,
+                    data: Some(res),
+                    error: None,
+                },
+                Err(e) => CommandResult {
+                    success: false,
+                    data: None,
+                    error: Some(e),
+                },
+            }
+        }
+    }
+}
