@@ -55,6 +55,21 @@ pub struct UploadSummary {
     pub snapshot_folder_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteSnapshotSummary {
+    pub snapshot_id: String,
+    pub source_name: String,
+    pub created_at: String,
+    pub total_files: usize,
+    pub total_size_bytes: u64,
+    pub is_encrypted: bool,
+    pub encryption_algorithm: Option<String>,
+    pub provider: String,
+    pub vault_folder_id: String,
+    pub snapshot_folder_id: String,
+    pub is_imported: bool,
+}
+
 pub trait CloudProvider: Send + Sync {
     fn provider_type(&self) -> CloudProviderType;
     fn get_status(&self, conn: &Connection) -> Result<CloudConnectionStatus, String>;
@@ -64,6 +79,11 @@ pub trait CloudProvider: Send + Sync {
         conn: &Connection,
         snapshot_id: &str,
     ) -> Result<UploadSummary, String>;
+    fn discover_remote_snapshots(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<RemoteSnapshotSummary>, String>;
+    fn rebuild_catalog_from_cloud(&self, conn: &mut Connection) -> Result<usize, String>;
 }
 
 /// Returns the status list of all registered cloud providers.

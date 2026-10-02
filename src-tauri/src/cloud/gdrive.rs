@@ -575,6 +575,83 @@ impl GoogleDriveProvider {
 
         Ok(true)
     }
+
+    /// Lists children of a given parent folder, optionally filtering by mimeType or name.
+    pub fn list_children(
+        access_token: &str,
+        parent_id: &str,
+        extra_query: Option<&str>,
+    ) -> Result<Vec<(String, String)>, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        let mut query = format!("'{}' in parents and trashed = false", parent_id);
+        if let Some(extra) = extra_query {
+            query.push_str(&format!(" and {}", extra));
+        }
+
+        let res = client
+            .get("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(access_token)
+            .query(&[("q", &query), ("fields", &"files(id, name)".to_string())])
+            .send()
+            .map_err(|e| format!("Search files request failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().unwrap_or_default();
+            return Err(format!("Failed to list folder children ({}): {}", status, body));
+        }
+
+        #[derive(Deserialize)]
+        struct FileListRes {
+            files: Vec<DriveFileEntry>,
+        }
+        #[derive(Deserialize)]
+        struct DriveFileEntry {
+            id: String,
+            name: String,
+        }
+
+        let list: FileListRes = res
+            .json()
+            .map_err(|e| format!("Failed to parse file list JSON: {}", e))?;
+
+        Ok(list.files.into_iter().map(|f| (f.id, f.name)).collect())
+    }
+
+    /// Downloads the raw bytes of a file from Google Drive.
+    pub fn download_file_bytes(access_token: &str, file_id: &str) -> Result<Vec<u8>, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        let url = format!(
+            "https://www.googleapis.com/drive/v3/files/{}?alt=media",
+            file_id
+        );
+
+        let res = client
+            .get(&url)
+            .bearer_auth(access_token)
+            .send()
+            .map_err(|e| format!("Download file request failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().unwrap_or_default();
+            return Err(format!("Failed to download remote file ({}): {}", status, body));
+        }
+
+        let bytes = res
+            .bytes()
+            .map_err(|e| format!("Failed to read downloaded file bytes: {}", e))?;
+
+        Ok(bytes.to_vec())
+    }
 }
 
 impl CloudProvider for GoogleDriveProvider {
@@ -687,5 +764,202 @@ impl CloudProvider for GoogleDriveProvider {
             vault_folder_id: vault_id,
             snapshot_folder_id,
         })
+    }
+
+    fn discover_remote_snapshots(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<super::RemoteSnapshotSummary>, String> {
+        let access_token = Self::get_valid_access_token(conn)?;
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        let search_query =
+            "name = 'Secure Backup Vault' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+
+        let search_res = client
+            .get("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(&access_token)
+            .query(&[("q", search_query), ("fields", "files(id, name)")])
+            .send()
+            .map_err(|e| format!("Vault search request failed: {}", e))?;
+
+        #[derive(Deserialize)]
+        struct FileList {
+            files: Vec<DriveFileEntry>,
+        }
+        #[derive(Deserialize)]
+        struct DriveFileEntry {
+            id: String,
+        }
+
+        let vault_id = if search_res.status().is_success() {
+            if let Ok(list) = search_res.json::<FileList>() {
+                list.files.first().map(|f| f.id.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let vault_id = match vault_id {
+            Some(vid) => vid,
+            None => return Ok(Vec::new()),
+        };
+
+        // List all snapshot subfolders inside the vault
+        let snapshot_folders = Self::list_children(
+            &access_token,
+            &vault_id,
+            Some("mimeType = 'application/vnd.google-apps.folder'"),
+        )?;
+
+        let mut summaries = Vec::new();
+
+        for (folder_id, _folder_name) in snapshot_folders {
+            let manifest_files = Self::list_children(
+                &access_token,
+                &folder_id,
+                Some("name = 'manifest.json'"),
+            )?;
+
+            if let Some((manifest_id, _)) = manifest_files.first() {
+                if let Ok(manifest_bytes) = Self::download_file_bytes(&access_token, manifest_id) {
+                    if let Ok(manifest) = serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes) {
+                        let is_imported: bool = conn
+                            .query_row(
+                                "SELECT 1 FROM snapshots WHERE id = ?1",
+                                rusqlite::params![manifest.id],
+                                |_| Ok(()),
+                            )
+                            .is_ok();
+
+                        summaries.push(super::RemoteSnapshotSummary {
+                            snapshot_id: manifest.id,
+                            source_name: manifest.source_name,
+                            created_at: manifest.created_at.to_rfc3339(),
+                            total_files: manifest.total_files,
+                            total_size_bytes: manifest.total_size_bytes,
+                            is_encrypted: manifest.is_encrypted,
+                            encryption_algorithm: manifest.encryption_algorithm,
+                            provider: "Google Drive".to_string(),
+                            vault_folder_id: vault_id.clone(),
+                            snapshot_folder_id: folder_id,
+                            is_imported,
+                        });
+                    }
+                }
+            }
+        }
+
+        summaries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(summaries)
+    }
+
+    fn rebuild_catalog_from_cloud(&self, conn: &mut Connection) -> Result<usize, String> {
+        let access_token = Self::get_valid_access_token(conn)?;
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("HTTP client init failed: {}", e))?;
+
+        let search_query =
+            "name = 'Secure Backup Vault' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+
+        let search_res = client
+            .get("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(&access_token)
+            .query(&[("q", search_query), ("fields", "files(id, name)")])
+            .send()
+            .map_err(|e| format!("Vault search request failed: {}", e))?;
+
+        #[derive(Deserialize)]
+        struct FileList {
+            files: Vec<DriveFileEntry>,
+        }
+        #[derive(Deserialize)]
+        struct DriveFileEntry {
+            id: String,
+        }
+
+        let vault_id = if search_res.status().is_success() {
+            if let Ok(list) = search_res.json::<FileList>() {
+                list.files.first().map(|f| f.id.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let vault_id = match vault_id {
+            Some(vid) => vid,
+            None => return Ok(0),
+        };
+
+        let snapshot_folders = Self::list_children(
+            &access_token,
+            &vault_id,
+            Some("mimeType = 'application/vnd.google-apps.folder'"),
+        )?;
+
+        let mut imported_count = 0;
+
+        for (folder_id, _folder_name) in snapshot_folders {
+            let manifest_files = Self::list_children(
+                &access_token,
+                &folder_id,
+                Some("name = 'manifest.json'"),
+            )?;
+
+            if let Some((manifest_id, _)) = manifest_files.first() {
+                if let Ok(manifest_bytes) = Self::download_file_bytes(&access_token, manifest_id) {
+                    if let Ok(manifest) = serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes) {
+                        let exists: bool = conn
+                            .query_row(
+                                "SELECT 1 FROM snapshots WHERE id = ?1",
+                                rusqlite::params![manifest.id],
+                                |_| Ok(()),
+                            )
+                            .is_ok();
+
+                        if !exists {
+                            crate::db::insert_snapshot(conn, &manifest, "completed")?;
+                            crate::db::mark_snapshot_synced(conn, &manifest.id)?;
+
+                            if let Ok(remote_files) = Self::list_children(&access_token, &folder_id, None) {
+                                for file in &manifest.files {
+                                    let stored_name = if manifest.is_encrypted {
+                                        let original_name = std::path::Path::new(&file.relative_path)
+                                            .file_name()
+                                            .map(|s| s.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| "file".to_string());
+                                        format!("{}.enc", original_name)
+                                    } else {
+                                        std::path::Path::new(&file.relative_path)
+                                            .file_name()
+                                            .map(|s| s.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| "file".to_string())
+                                    };
+
+                                    if let Some((remote_id, _)) = remote_files.iter().find(|(_, name)| name == &stored_name) {
+                                        let _ = crate::db::mark_file_synced(conn, &manifest.id, &file.relative_path, remote_id);
+                                    }
+                                }
+                            }
+
+                            imported_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(imported_count)
     }
 }
