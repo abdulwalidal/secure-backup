@@ -745,18 +745,34 @@ impl CloudProvider for GoogleDriveProvider {
             total_bytes_uploaded += bytes.len() as u64;
         }
 
-        // 5. Upload manifest.json
+        // 5. Upload manifest (encrypted manifest.json.enc for encrypted snapshots, or manifest.json for unencrypted)
+        let enc_manifest_path = snapshot_dir.join("manifest.json.enc");
         let manifest_path = snapshot_dir.join("manifest.json");
-        if manifest_path.exists() {
-            if let Ok(manifest_bytes) = std::fs::read(&manifest_path) {
-                let _ = Self::upload_file_multipart(
-                    &access_token,
-                    &snapshot_folder_id,
-                    "manifest.json",
-                    &manifest_bytes,
-                    "application/json",
-                );
-            }
+
+        if enc_manifest_path.exists() {
+            let manifest_bytes = std::fs::read(&enc_manifest_path).map_err(|e| {
+                format!(
+                    "Failed to read encrypted manifest {:?}: {}",
+                    enc_manifest_path, e
+                )
+            })?;
+            let _ = Self::upload_file_multipart(
+                &access_token,
+                &snapshot_folder_id,
+                "manifest.json.enc",
+                &manifest_bytes,
+                "application/octet-stream",
+            )?;
+        } else if manifest_path.exists() {
+            let manifest_bytes = std::fs::read(&manifest_path)
+                .map_err(|e| format!("Failed to read manifest {:?}: {}", manifest_path, e))?;
+            let _ = Self::upload_file_multipart(
+                &access_token,
+                &snapshot_folder_id,
+                "manifest.json",
+                &manifest_bytes,
+                "application/json",
+            )?;
         }
 
         // 6. Mark snapshot as cloud synced in SQLite
@@ -826,13 +842,96 @@ impl CloudProvider for GoogleDriveProvider {
 
         let mut summaries = Vec::new();
 
-        for (folder_id, _folder_name) in snapshot_folders {
-            let manifest_files =
-                Self::list_children(&access_token, &folder_id, Some("name = 'manifest.json'"))?;
+        for (folder_id, folder_name) in snapshot_folders {
+            let enc_manifest_files = Self::list_children(
+                &access_token,
+                &folder_id,
+                Some("name = 'manifest.json.enc'"),
+            )?;
+            let plain_manifest_files = if enc_manifest_files.is_empty() {
+                Self::list_children(&access_token, &folder_id, Some("name = 'manifest.json'"))?
+            } else {
+                Vec::new()
+            };
 
-            if let Some((manifest_id, _)) = manifest_files.first() {
+            if let Some((_enc_id, _)) = enc_manifest_files.first() {
+                // Encrypted manifest found
+                let db_row = conn
+                    .query_row(
+                        "SELECT id, source_name, created_at, total_files, total_size_bytes, is_encrypted, encryption_algorithm FROM snapshots WHERE id = ?1",
+                        rusqlite::params![folder_name],
+                        |row| {
+                            let is_enc_int: i64 = row.get(5)?;
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)? as usize,
+                                row.get::<_, i64>(4)? as u64,
+                                is_enc_int != 0,
+                                row.get::<_, Option<String>>(6)?,
+                            ))
+                        },
+                    )
+                    .ok();
+
+                if let Some((snap_id, src_name, created, files_count, size_bytes, is_enc, algo)) =
+                    db_row
+                {
+                    summaries.push(super::RemoteSnapshotSummary {
+                        snapshot_id: snap_id,
+                        source_name: src_name,
+                        created_at: created,
+                        total_files: files_count,
+                        total_size_bytes: size_bytes,
+                        is_encrypted: is_enc,
+                        encryption_algorithm: algo,
+                        provider: "Google Drive".to_string(),
+                        vault_folder_id: vault_id.clone(),
+                        snapshot_folder_id: folder_id,
+                        is_imported: true,
+                    });
+                } else {
+                    // Safe presentation for fresh install without guessing sensitive contents
+                    summaries.push(super::RemoteSnapshotSummary {
+                        snapshot_id: folder_name.clone(),
+                        source_name: "Encrypted Snapshot (metadata locked)".to_string(),
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                        total_files: 0,
+                        total_size_bytes: 0,
+                        is_encrypted: true,
+                        encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+                        provider: "Google Drive".to_string(),
+                        vault_folder_id: vault_id.clone(),
+                        snapshot_folder_id: folder_id,
+                        is_imported: false,
+                    });
+                }
+            } else if let Some((manifest_id, _)) = plain_manifest_files.first() {
                 if let Ok(manifest_bytes) = Self::download_file_bytes(&access_token, manifest_id) {
-                    if let Ok(manifest) =
+                    if manifest_bytes.starts_with(crate::encryption::MAGIC_HEADER) {
+                        let is_imported: bool = conn
+                            .query_row(
+                                "SELECT 1 FROM snapshots WHERE id = ?1",
+                                rusqlite::params![folder_name],
+                                |_| Ok(()),
+                            )
+                            .is_ok();
+
+                        summaries.push(super::RemoteSnapshotSummary {
+                            snapshot_id: folder_name.clone(),
+                            source_name: "Encrypted Snapshot (metadata locked)".to_string(),
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                            total_files: 0,
+                            total_size_bytes: 0,
+                            is_encrypted: true,
+                            encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+                            provider: "Google Drive".to_string(),
+                            vault_folder_id: vault_id.clone(),
+                            snapshot_folder_id: folder_id,
+                            is_imported,
+                        });
+                    } else if let Ok(manifest) =
                         serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes)
                     {
                         let is_imported: bool = conn
@@ -915,13 +1014,93 @@ impl CloudProvider for GoogleDriveProvider {
 
         let mut imported_count = 0;
 
-        for (folder_id, _folder_name) in snapshot_folders {
-            let manifest_files =
-                Self::list_children(&access_token, &folder_id, Some("name = 'manifest.json'"))?;
+        for (folder_id, folder_name) in snapshot_folders {
+            let enc_manifest_files = Self::list_children(
+                &access_token,
+                &folder_id,
+                Some("name = 'manifest.json.enc'"),
+            )?;
+            let plain_manifest_files = if enc_manifest_files.is_empty() {
+                Self::list_children(&access_token, &folder_id, Some("name = 'manifest.json'"))?
+            } else {
+                Vec::new()
+            };
 
-            if let Some((manifest_id, _)) = manifest_files.first() {
+            if let Some((_enc_id, _)) = enc_manifest_files.first() {
+                let exists: bool = conn
+                    .query_row(
+                        "SELECT 1 FROM snapshots WHERE id = ?1",
+                        rusqlite::params![folder_name],
+                        |_| Ok(()),
+                    )
+                    .is_ok();
+
+                if exists {
+                    crate::db::mark_snapshot_synced(conn, &folder_name)?;
+                } else {
+                    let created_at_str = chrono::Utc::now().to_rfc3339();
+                    conn.execute(
+                        r#"
+                        INSERT INTO snapshots (
+                            id, source_path, source_name, created_at,
+                            total_files, total_size_bytes, is_encrypted,
+                            encryption_algorithm, salt_hex, status, cloud_synced
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1)
+                        "#,
+                        rusqlite::params![
+                            folder_name,
+                            "",
+                            "Encrypted Snapshot (metadata locked)",
+                            created_at_str,
+                            0i64,
+                            0i64,
+                            1i64,
+                            "AES-256-GCM / Argon2id",
+                            Option::<String>::None,
+                            "cloud_only",
+                        ],
+                    )
+                    .map_err(|e| format!("Failed to insert cloud snapshot: {}", e))?;
+                    imported_count += 1;
+                }
+            } else if let Some((manifest_id, _)) = plain_manifest_files.first() {
                 if let Ok(manifest_bytes) = Self::download_file_bytes(&access_token, manifest_id) {
-                    if let Ok(manifest) =
+                    if manifest_bytes.starts_with(crate::encryption::MAGIC_HEADER) {
+                        let exists: bool = conn
+                            .query_row(
+                                "SELECT 1 FROM snapshots WHERE id = ?1",
+                                rusqlite::params![folder_name],
+                                |_| Ok(()),
+                            )
+                            .is_ok();
+
+                        if !exists {
+                            let created_at_str = chrono::Utc::now().to_rfc3339();
+                            conn.execute(
+                                r#"
+                                INSERT INTO snapshots (
+                                    id, source_path, source_name, created_at,
+                                    total_files, total_size_bytes, is_encrypted,
+                                    encryption_algorithm, salt_hex, status, cloud_synced
+                                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1)
+                                "#,
+                                rusqlite::params![
+                                    folder_name,
+                                    "",
+                                    "Encrypted Snapshot (metadata locked)",
+                                    created_at_str,
+                                    0i64,
+                                    0i64,
+                                    1i64,
+                                    "AES-256-GCM / Argon2id",
+                                    Option::<String>::None,
+                                    "cloud_only",
+                                ],
+                            )
+                            .map_err(|e| format!("Failed to insert cloud snapshot: {}", e))?;
+                            imported_count += 1;
+                        }
+                    } else if let Ok(manifest) =
                         serde_json::from_slice::<crate::models::BackupManifest>(&manifest_bytes)
                     {
                         let exists: bool = conn

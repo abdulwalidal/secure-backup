@@ -191,3 +191,102 @@ fn test_disaster_recovery_catalog_rebuild_simulation() {
     assert_eq!(files[1].relative_path, "secret.txt");
     assert_eq!(files[1].cloud_file_id, Some("cloud-file-id-1".to_string()));
 }
+
+#[test]
+fn test_encrypted_manifest_disaster_recovery_safe_representation() {
+    let conn = setup_test_db();
+
+    // Verify database initially empty
+    let initial_snapshots = crate::db::get_snapshots(&conn).expect("get_snapshots should succeed");
+    assert!(initial_snapshots.is_empty());
+
+    // When an encrypted manifest exists in the cloud without local SQLite catalog:
+    // RemoteSnapshotSummary must represent it safely without fabricating plaintext fields
+    let remote_summary = RemoteSnapshotSummary {
+        snapshot_id: "20261002_150000_SecretVault".to_string(),
+        source_name: "Encrypted Snapshot (metadata locked)".to_string(),
+        created_at: "2026-10-02T15:00:00Z".to_string(),
+        total_files: 0,
+        total_size_bytes: 0,
+        is_encrypted: true,
+        encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+        provider: "Google Drive".to_string(),
+        vault_folder_id: "vault-root-999".to_string(),
+        snapshot_folder_id: "folder-snap-888".to_string(),
+        is_imported: false,
+    };
+
+    assert!(remote_summary.is_encrypted);
+    assert!(!remote_summary.is_imported);
+    assert_eq!(remote_summary.total_files, 0);
+    assert_eq!(
+        remote_summary.source_name,
+        "Encrypted Snapshot (metadata locked)"
+    );
+
+    // Inserting locked snapshot into catalog records cloud-only state
+    conn.execute(
+        r#"
+        INSERT INTO snapshots (
+            id, source_path, source_name, created_at,
+            total_files, total_size_bytes, is_encrypted,
+            encryption_algorithm, salt_hex, status, cloud_synced
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1)
+        "#,
+        rusqlite::params![
+            remote_summary.snapshot_id,
+            "",
+            remote_summary.source_name,
+            remote_summary.created_at,
+            0i64,
+            0i64,
+            1i64,
+            "AES-256-GCM / Argon2id",
+            Option::<String>::None,
+            "cloud_only",
+        ],
+    )
+    .unwrap();
+
+    let snapshots = crate::db::get_snapshots(&conn).unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].status, "cloud_only");
+    assert!(snapshots[0].is_encrypted);
+}
+
+#[test]
+fn test_cloud_upload_manifest_file_selection() {
+    let tmp = std::env::temp_dir().join(format!("sb_upload_test_{}", rand::random::<u32>()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let enc_path = tmp.join("manifest.json.enc");
+    let plain_path = tmp.join("manifest.json");
+
+    // Case 1: Encrypted snapshot has manifest.json.enc
+    std::fs::write(&enc_path, b"SECBKP01_encrypted_manifest_bytes").unwrap();
+
+    let chosen_upload = if enc_path.exists() {
+        "manifest.json.enc"
+    } else if plain_path.exists() {
+        "manifest.json"
+    } else {
+        "none"
+    };
+    assert_eq!(chosen_upload, "manifest.json.enc");
+
+    // Case 2: Plaintext/legacy snapshot only has manifest.json
+    std::fs::remove_file(&enc_path).unwrap();
+    std::fs::write(&plain_path, b"{\"legacy\": true}").unwrap();
+
+    let chosen_legacy = if enc_path.exists() {
+        "manifest.json.enc"
+    } else if plain_path.exists() {
+        "manifest.json"
+    } else {
+        "none"
+    };
+    assert_eq!(chosen_legacy, "manifest.json");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

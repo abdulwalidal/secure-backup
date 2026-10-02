@@ -99,6 +99,32 @@ pub fn encrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
     Ok(())
 }
 
+/// Encrypts an arbitrary byte payload using the SECBKP01 binary format:
+/// [ MAGIC (8B: b"SECBKP01") | SALT (16B) | NONCE (12B) | CIPHERTEXT + 16B GCM TAG ]
+pub fn encrypt_archive_payload(
+    data: &[u8],
+    key: &[u8; 32],
+    salt: &[u8; SALT_LEN],
+) -> Result<Vec<u8>, String> {
+    let (ciphertext, nonce) = encrypt_bytes(data, key)?;
+    let mut out = Vec::with_capacity(MAGIC_HEADER.len() + SALT_LEN + NONCE_LEN + ciphertext.len());
+    out.extend_from_slice(MAGIC_HEADER);
+    out.extend_from_slice(salt);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    Ok(out)
+}
+
+/// Encrypts an arbitrary byte payload with SECBKP01 using a freshly generated salt and key derived from passphrase.
+pub fn encrypt_archive_payload_with_passphrase(
+    data: &[u8],
+    password: &str,
+) -> Result<Vec<u8>, String> {
+    let salt = generate_salt();
+    let key = derive_key(password, &salt)?;
+    encrypt_archive_payload(data, &key, &salt)
+}
+
 /// Decrypts the raw byte payload of a SECBKP01 encrypted archive.
 pub fn decrypt_archive_payload(buffer: &[u8], password: &str) -> Result<Vec<u8>, String> {
     let header_len = MAGIC_HEADER.len() + SALT_LEN + NONCE_LEN;
@@ -254,5 +280,69 @@ mod tests {
         let _ = fs::remove_file(enc_dest);
         let _ = fs::remove_file(dec_dest);
         let _ = fs::remove_file(wrong_dest);
+    }
+
+    #[test]
+    fn test_archive_payload_roundtrip_and_structure() {
+        let password = "manifest-test-passphrase-2026";
+        let original_data = b"{\"snapshot_id\": \"snap_123\", \"files\": [\"a.txt\", \"b.txt\"]}";
+
+        let encrypted = encrypt_archive_payload_with_passphrase(original_data, password)
+            .expect("Encryption failed");
+
+        // Verify SECBKP01 structure: 8B magic + 16B salt + 12B nonce + ciphertext + 16B GCM tag
+        assert!(encrypted.len() >= 8 + SALT_LEN + NONCE_LEN + 16);
+        assert_eq!(&encrypted[..8], MAGIC_HEADER);
+
+        // Verify salt can be extracted
+        let salt = extract_salt_from_archive(&encrypted).expect("Salt extraction failed");
+        assert_eq!(&salt[..], &encrypted[8..24]);
+
+        // Verify successful decryption with correct passphrase
+        let decrypted = decrypt_archive_payload(&encrypted, password).expect("Decryption failed");
+        assert_eq!(decrypted, original_data);
+
+        // Verify decryption with wrong passphrase fails
+        let wrong_res = decrypt_archive_payload(&encrypted, "wrong-passphrase");
+        assert!(wrong_res.is_err());
+    }
+
+    #[test]
+    fn test_archive_payload_tampering_detection() {
+        let password = "tamper-protection-passphrase";
+        let original_data = b"Top secret backup manifest payload.";
+
+        let encrypted = encrypt_archive_payload_with_passphrase(original_data, password)
+            .expect("Encryption failed");
+
+        // 1. Corrupt magic header
+        let mut bad_header = encrypted.clone();
+        bad_header[0] = b'X';
+        assert!(decrypt_archive_payload(&bad_header, password).is_err());
+
+        // 2. Corrupt salt
+        let mut bad_salt = encrypted.clone();
+        bad_salt[8] ^= 0xff;
+        assert!(decrypt_archive_payload(&bad_salt, password).is_err());
+
+        // 3. Corrupt nonce
+        let mut bad_nonce = encrypted.clone();
+        bad_nonce[24] ^= 0x55;
+        assert!(decrypt_archive_payload(&bad_nonce, password).is_err());
+
+        // 4. Corrupt ciphertext body
+        let mut bad_ciphertext = encrypted.clone();
+        bad_ciphertext[36] ^= 0xaa;
+        assert!(decrypt_archive_payload(&bad_ciphertext, password).is_err());
+
+        // 5. Corrupt GCM authentication tag (last 16 bytes)
+        let mut bad_tag = encrypted.clone();
+        let last_idx = bad_tag.len() - 1;
+        bad_tag[last_idx] ^= 0x01;
+        assert!(decrypt_archive_payload(&bad_tag, password).is_err());
+
+        // 6. Truncated payload
+        let truncated = &encrypted[..20];
+        assert!(decrypt_archive_payload(truncated, password).is_err());
     }
 }

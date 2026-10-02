@@ -337,19 +337,56 @@ pub fn restore_local_snapshot(
         ));
     }
 
+    let enc_manifest_path = snapshot_dir.join("manifest.json.enc");
     let manifest_path = snapshot_dir.join("manifest.json");
-    if !manifest_path.exists() {
+
+    let manifest: BackupManifest = if enc_manifest_path.exists() {
+        let pw = options
+            .passphrase
+            .ok_or_else(|| "Passphrase required to decrypt backup manifest.".to_string())?;
+        let enc_bytes = fs::read(&enc_manifest_path).map_err(|e| {
+            format!(
+                "Failed to read encrypted manifest {:?}: {}",
+                enc_manifest_path, e
+            )
+        })?;
+        let decrypted_bytes =
+            crate::encryption::decrypt_archive_payload(&enc_bytes, pw).map_err(|_| {
+                "Manifest decryption failed: invalid passphrase or corrupted data.".to_string()
+            })?;
+        serde_json::from_slice(&decrypted_bytes)
+            .map_err(|e| format!("Failed to parse decrypted manifest JSON: {}", e))?
+    } else if manifest_path.exists() {
+        let raw_bytes = fs::read(&manifest_path)
+            .map_err(|e| format!("Failed to read manifest {:?}: {}", manifest_path, e))?;
+        if raw_bytes.starts_with(crate::encryption::MAGIC_HEADER) {
+            let pw = options
+                .passphrase
+                .ok_or_else(|| "Passphrase required to decrypt backup manifest.".to_string())?;
+            let decrypted_bytes = crate::encryption::decrypt_archive_payload(&raw_bytes, pw)
+                .map_err(|_| {
+                    "Manifest decryption failed: invalid passphrase or corrupted data.".to_string()
+                })?;
+            serde_json::from_slice(&decrypted_bytes)
+                .map_err(|e| format!("Failed to parse decrypted manifest JSON: {}", e))?
+        } else {
+            serde_json::from_slice(&raw_bytes)
+                .map_err(|e| format!("Failed to parse manifest JSON: {}", e))?
+        }
+    } else {
         return Err(format!(
             "Snapshot manifest not found at {:?}.",
-            manifest_path
+            snapshot_dir
+        ));
+    };
+
+    // Prevent manifest substitution attacks
+    if manifest.id != snapshot_id {
+        return Err(format!(
+            "Manifest snapshot ID mismatch: expected '{}', found '{}'. Possible manifest substitution attack detected.",
+            snapshot_id, manifest.id
         ));
     }
-
-    let manifest_content = fs::read_to_string(&manifest_path)
-        .map_err(|e| format!("Failed to read manifest {:?}: {}", manifest_path, e))?;
-
-    let manifest: BackupManifest = serde_json::from_str(&manifest_content)
-        .map_err(|e| format!("Failed to parse manifest JSON: {}", e))?;
 
     let mut files_restored = 0;
     let mut files_skipped = 0;
@@ -556,20 +593,48 @@ pub fn restore_cloud_snapshot(
     // 3. List files inside snapshot folder
     let children = GoogleDriveProvider::list_children(&access_token, &snapshot_folder_id, None)?;
 
-    // 4. Download manifest.json
-    let manifest_file = children
+    // 4. Download manifest (check manifest.json.enc first, then manifest.json)
+    let enc_manifest_file = children
         .iter()
-        .find(|(_, name)| name == "manifest.json")
-        .ok_or_else(|| {
-            format!(
-                "No manifest.json found in Google Drive snapshot '{}'.",
-                snapshot_id
-            )
-        })?;
+        .find(|(_, name)| name == "manifest.json.enc");
+    let plain_manifest_file = children.iter().find(|(_, name)| name == "manifest.json");
 
-    let manifest_bytes = GoogleDriveProvider::download_file_bytes(&access_token, &manifest_file.0)?;
-    let manifest: BackupManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| format!("Failed to parse remote manifest.json: {}", e))?;
+    let (manifest_file_id, is_enc_filename) = match (enc_manifest_file, plain_manifest_file) {
+        (Some((id, _)), _) => (id, true),
+        (None, Some((id, _))) => (id, false),
+        (None, None) => {
+            return Err(format!(
+                "No manifest found in Google Drive snapshot '{}'.",
+                snapshot_id
+            ));
+        }
+    };
+
+    let manifest_bytes = GoogleDriveProvider::download_file_bytes(&access_token, manifest_file_id)?;
+
+    let manifest: BackupManifest =
+        if is_enc_filename || manifest_bytes.starts_with(crate::encryption::MAGIC_HEADER) {
+            let pw = options.passphrase.ok_or_else(|| {
+                "Passphrase required to decrypt remote backup manifest.".to_string()
+            })?;
+            let decrypted_bytes = crate::encryption::decrypt_archive_payload(&manifest_bytes, pw)
+                .map_err(|_| {
+                "Manifest decryption failed: invalid passphrase or corrupted data.".to_string()
+            })?;
+            serde_json::from_slice(&decrypted_bytes)
+                .map_err(|e| format!("Failed to parse decrypted manifest JSON: {}", e))?
+        } else {
+            serde_json::from_slice(&manifest_bytes)
+                .map_err(|e| format!("Failed to parse remote manifest.json: {}", e))?
+        };
+
+    // Prevent manifest substitution attacks
+    if manifest.id != snapshot_id {
+        return Err(format!(
+            "Manifest snapshot ID mismatch: expected '{}', found '{}'. Possible manifest substitution attack detected.",
+            snapshot_id, manifest.id
+        ));
+    }
 
     let mut files_restored = 0;
     let mut files_skipped = 0;

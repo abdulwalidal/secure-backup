@@ -544,7 +544,14 @@ fn test_missing_source_file_and_missing_snapshot() {
         .join("deleted_later.txt.enc");
     let _ = fs::remove_file(enc_path);
 
-    let restore_result = restore_local_snapshot(&backup_result.backup_id, &options).unwrap();
+    let restore_options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some("pass"),
+        conflict_policy: ConflictPolicy::Skip,
+    };
+
+    let restore_result =
+        restore_local_snapshot(&backup_result.backup_id, &restore_options).unwrap();
     assert_eq!(restore_result.files_failed, 1);
     assert_eq!(restore_result.files_restored, 0);
     assert!(restore_result.items[0].error.is_some());
@@ -552,4 +559,199 @@ fn test_missing_source_file_and_missing_snapshot() {
     let _ = fs::remove_dir_all(&tmp_source);
     let _ = fs::remove_dir_all(&dest_dir);
     let _ = fs::remove_dir_all(&backup_result.target_directory);
+}
+
+#[test]
+fn test_restore_encrypted_manifest_success_and_wrong_passphrase() {
+    let tmp_src = create_temp_dest_dir("enc_manifest_src");
+    let file = tmp_src.join("data.txt");
+    fs::write(
+        &file,
+        b"Highly secret content for encrypted manifest restore",
+    )
+    .unwrap();
+
+    let pw = "manifest-restore-passphrase";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    // Verify manifest.json.enc exists on disk and manifest.json does NOT
+    let enc_manifest = Path::new(&backup_res.target_directory).join("manifest.json.enc");
+    assert!(enc_manifest.exists());
+    assert!(!Path::new(&backup_res.target_directory)
+        .join("manifest.json")
+        .exists());
+
+    let dest_dir = create_temp_dest_dir("enc_manifest_dest");
+
+    // 1. Wrong passphrase fails cleanly and leaves destination directory untouched
+    let wrong_options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some("completely-wrong-password"),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+    let wrong_res = restore_local_snapshot(&backup_res.backup_id, &wrong_options);
+    assert!(wrong_res.is_err());
+    assert!(wrong_res
+        .unwrap_err()
+        .contains("Manifest decryption failed"));
+    assert!(!dest_dir.join("data.txt").exists());
+
+    // 2. Missing passphrase fails cleanly
+    let no_pass_options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: None,
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+    let no_pass_res = restore_local_snapshot(&backup_res.backup_id, &no_pass_options);
+    assert!(no_pass_res.is_err());
+
+    // 3. Correct passphrase restores file faithfully
+    let correct_options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+    let restore_res = restore_local_snapshot(&backup_res.backup_id, &correct_options).unwrap();
+    assert_eq!(restore_res.files_restored, 1);
+    assert_eq!(restore_res.files_failed, 0);
+    assert_eq!(
+        fs::read(dest_dir.join("data.txt")).unwrap(),
+        b"Highly secret content for encrypted manifest restore"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
+
+#[test]
+fn test_restore_encrypted_manifest_tampering() {
+    let tmp_src = create_temp_dest_dir("tamper_manifest_src");
+    let file = tmp_src.join("data.txt");
+    fs::write(&file, b"Tamper protection test payload").unwrap();
+
+    let pw = "tamper-passphrase-2026";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+    let enc_manifest_path = Path::new(&backup_res.target_directory).join("manifest.json.enc");
+
+    // Corrupt one byte of the encrypted manifest
+    let mut bytes = fs::read(&enc_manifest_path).unwrap();
+    let len = bytes.len();
+    bytes[len - 2] ^= 0x42; // Corrupt authentication tag
+    fs::write(&enc_manifest_path, &bytes).unwrap();
+
+    let dest_dir = create_temp_dest_dir("tamper_manifest_dest");
+    let options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+
+    let res = restore_local_snapshot(&backup_res.backup_id, &options);
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Manifest decryption failed"));
+    assert!(!dest_dir.join("data.txt").exists());
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
+
+#[test]
+fn test_restore_manifest_substitution_attack_detected() {
+    let tmp_src1 = create_temp_dest_dir("subst_src1");
+    let tmp_src2 = create_temp_dest_dir("subst_src2");
+    fs::write(tmp_src1.join("file1.txt"), b"Content 1").unwrap();
+    fs::write(tmp_src2.join("file2.txt"), b"Content 2").unwrap();
+
+    let pw = "subst-passphrase";
+    let backup1 = crate::backup::create_local_backup(&tmp_src1, Some(pw)).unwrap();
+    let backup2 = crate::backup::create_local_backup(&tmp_src2, Some(pw)).unwrap();
+
+    let manifest1 = Path::new(&backup1.target_directory).join("manifest.json.enc");
+    let manifest2 = Path::new(&backup2.target_directory).join("manifest.json.enc");
+
+    // Replace backup2's manifest with backup1's manifest
+    fs::copy(&manifest1, &manifest2).unwrap();
+
+    let dest_dir = create_temp_dest_dir("subst_dest");
+    let options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+
+    // Attempting to restore backup2 with backup1's substituted manifest must fail
+    let res = restore_local_snapshot(&backup2.backup_id, &options);
+    assert!(res.is_err());
+    assert!(res
+        .unwrap_err()
+        .contains("Possible manifest substitution attack detected"));
+
+    let _ = fs::remove_dir_all(&tmp_src1);
+    let _ = fs::remove_dir_all(&tmp_src2);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&backup1.target_directory);
+    let _ = fs::remove_dir_all(&backup2.target_directory);
+}
+
+#[test]
+fn test_restore_legacy_plaintext_manifest_backward_compatibility() {
+    let tmp_src = create_temp_dest_dir("legacy_src");
+    let file = tmp_src.join("legacy_doc.txt");
+    fs::write(&file, b"Legacy backup unencrypted manifest content").unwrap();
+
+    let pw = "legacy-pass";
+    let salt = generate_salt();
+    let key = derive_key(pw, &salt).unwrap();
+
+    let snap_id = "legacy_snapshot_2026";
+    let backups_base = crate::backup::get_backups_dir();
+    let snapshot_dir = backups_base.join(snap_id);
+    let data_dir = snapshot_dir.join("data");
+    fs::create_dir_all(&data_dir).unwrap();
+
+    let enc_file = data_dir.join("legacy_doc.txt.enc");
+    encrypt_file(&file, &enc_file, &key, &salt).unwrap();
+
+    let manifest = crate::models::BackupManifest {
+        id: snap_id.to_string(),
+        source_path: tmp_src.to_string_lossy().to_string(),
+        source_name: "legacy".to_string(),
+        created_at: chrono::Utc::now(),
+        total_files: 1,
+        total_size_bytes: fs::metadata(&file).unwrap().len(),
+        is_encrypted: true,
+        encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+        salt_hex: Some(hex::encode(salt)),
+        files: vec![crate::models::FileMetadata {
+            relative_path: "legacy_doc.txt".to_string(),
+            absolute_path: file.to_string_lossy().to_string(),
+            size_bytes: fs::metadata(&file).unwrap().len(),
+            sha256_hash: hash_bytes(&fs::read(&file).unwrap()),
+            modified_timestamp: 1720000000,
+        }],
+    };
+
+    // Save as plaintext manifest.json (legacy format)
+    let manifest_json = serde_json::to_string_pretty(&manifest).unwrap();
+    fs::write(snapshot_dir.join("manifest.json"), manifest_json).unwrap();
+
+    let dest_dir = create_temp_dest_dir("legacy_dest");
+    let options = RestoreOptions {
+        destination_dir: &dest_dir,
+        passphrase: Some(pw),
+        conflict_policy: ConflictPolicy::Overwrite,
+    };
+
+    let restore_res = restore_local_snapshot(snap_id, &options).unwrap();
+    assert_eq!(restore_res.files_restored, 1);
+    assert_eq!(
+        fs::read(dest_dir.join("legacy_doc.txt")).unwrap(),
+        b"Legacy backup unencrypted manifest content"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&dest_dir);
+    let _ = fs::remove_dir_all(&snapshot_dir);
 }

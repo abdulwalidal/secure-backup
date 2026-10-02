@@ -137,11 +137,27 @@ pub fn create_local_backup<P: AsRef<Path>>(
         files,
     };
 
-    let manifest_path = snapshot_dir.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let mut manifest_file = File::create(manifest_path)?;
-    manifest_file.write_all(manifest_json.as_bytes())?;
+
+    if is_encrypted {
+        // Encrypt manifest with SECBKP01 format and save as manifest.json.enc
+        let pw = passphrase.unwrap();
+        let enc_manifest_bytes = crate::encryption::encrypt_archive_payload_with_passphrase(
+            manifest_json.as_bytes(),
+            pw,
+        )
+        .map_err(io::Error::other)?;
+
+        let enc_manifest_path = snapshot_dir.join("manifest.json.enc");
+        let mut enc_manifest_file = File::create(enc_manifest_path)?;
+        enc_manifest_file.write_all(&enc_manifest_bytes)?;
+    } else {
+        // Save plaintext manifest.json for unencrypted backups
+        let manifest_path = snapshot_dir.join("manifest.json");
+        let mut manifest_file = File::create(manifest_path)?;
+        manifest_file.write_all(manifest_json.as_bytes())?;
+    }
 
     // 5. Persist snapshot records in local SQLite database
     if let Ok(mut conn) = crate::db::get_connection() {
@@ -159,7 +175,7 @@ pub fn create_local_backup<P: AsRef<Path>>(
     })
 }
 
-/// Reads all saved backup manifests from the local backup directory.
+/// Reads all saved backup manifests from the local backup directory or SQLite catalog.
 pub fn list_local_backups() -> io::Result<Vec<BackupManifest>> {
     let backups_base = get_backups_dir();
     if !backups_base.exists() {
@@ -167,22 +183,107 @@ pub fn list_local_backups() -> io::Result<Vec<BackupManifest>> {
     }
 
     let mut manifests = Vec::new();
+    let conn = crate::db::get_connection().ok();
+
     for entry in fs::read_dir(backups_base)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
             let manifest_path = entry.path().join("manifest.json");
+            let enc_manifest_path = entry.path().join("manifest.json.enc");
+            let folder_id = entry.file_name().to_string_lossy().to_string();
+
+            // 1. Check for legacy / unencrypted plaintext manifest.json
             if manifest_path.exists() {
                 if let Ok(content) = fs::read_to_string(&manifest_path) {
                     if let Ok(manifest) = serde_json::from_str::<BackupManifest>(&content) {
                         manifests.push(manifest);
+                        continue;
                     }
                 }
+            }
+
+            // 2. Check for encrypted manifest.json.enc
+            if enc_manifest_path.exists() {
+                if let Some(ref c) = conn {
+                    if let Ok(manifest) = get_manifest_from_db(c, &folder_id) {
+                        manifests.push(manifest);
+                        continue;
+                    }
+                }
+
+                manifests.push(BackupManifest {
+                    id: folder_id,
+                    source_path: String::new(),
+                    source_name: "Encrypted Backup".to_string(),
+                    created_at: Utc::now(),
+                    total_files: 0,
+                    total_size_bytes: 0,
+                    is_encrypted: true,
+                    encryption_algorithm: Some("AES-256-GCM / Argon2id".to_string()),
+                    salt_hex: None,
+                    files: Vec::new(),
+                });
             }
         }
     }
 
     manifests.sort_by_key(|a| std::cmp::Reverse(a.created_at));
     Ok(manifests)
+}
+
+fn get_manifest_from_db(
+    conn: &rusqlite::Connection,
+    snapshot_id: &str,
+) -> Result<BackupManifest, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT
+                id, source_path, source_name, created_at,
+                total_files, total_size_bytes, is_encrypted,
+                encryption_algorithm, salt_hex
+            FROM snapshots
+            WHERE id = ?1
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let manifest = stmt
+        .query_row(rusqlite::params![snapshot_id], |row| {
+            let is_encrypted_int: i64 = row.get(6)?;
+            let created_at_str: String = row.get(3)?;
+            let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+
+            Ok(BackupManifest {
+                id: row.get(0)?,
+                source_path: row.get(1)?,
+                source_name: row.get(2)?,
+                created_at,
+                total_files: row.get::<_, i64>(4)? as usize,
+                total_size_bytes: row.get::<_, i64>(5)? as u64,
+                is_encrypted: is_encrypted_int != 0,
+                encryption_algorithm: row.get(7)?,
+                salt_hex: row.get(8)?,
+                files: Vec::new(),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let file_records = crate::db::get_snapshot_files(conn, snapshot_id)?;
+    let files = file_records
+        .into_iter()
+        .map(|f| FileMetadata {
+            relative_path: f.relative_path,
+            absolute_path: String::new(),
+            size_bytes: f.size_bytes,
+            sha256_hash: f.sha256_hash,
+            modified_timestamp: f.modified_timestamp,
+        })
+        .collect();
+
+    Ok(BackupManifest { files, ..manifest })
 }
 
 #[cfg(test)]

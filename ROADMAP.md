@@ -61,7 +61,8 @@ This document outlines the phased engineering roadmap and long-term milestones f
 ### Phase 9: Post-Upload Verification & Remote Disaster Recovery (Current)
 - [ ] Remote file size and hash validation against Google Drive API metadata
 - [ ] Disaster recovery discovery: listing remote snapshots from Google Drive vault
-- [ ] Remote manifest downloading and local SQLite catalog reconstruction on fresh installs
+- [x] Remote manifest downloading and local SQLite catalog reconstruction on fresh installs
+- [x] Client-side backup manifest encryption (`SECBKP01`) protecting metadata before cloud upload (#27)
 - [ ] Automated network retry handling with exponential backoff
 
 ### Phase 10: Complete File Restoration Engine
