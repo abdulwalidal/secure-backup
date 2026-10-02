@@ -92,7 +92,8 @@ jobs:
 
       - name: Run Cryptography and Hashing Tests
         run: |
-          cargo test encryption:: hashing:: --manifest-path src-tauri/Cargo.toml --verbose
+          cargo test encryption:: --manifest-path src-tauri/Cargo.toml --verbose
+          cargo test hashing:: --manifest-path src-tauri/Cargo.toml --verbose
 
   test-db:
     name: "Unit Tests: SQLite Ledger & Migrations"
