@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Secure Backup</title>
+  <meta name="description" content="Privacy Policy for Secure Backup desktop application and Google Drive cloud integration.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="container nav-bar">
+      <a href="index.html" class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <span class="brand-title">Secure Backup</span>
+      </a>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="privacy.html" class="active">Privacy Policy</a>
+        <a href="terms.html">Terms of Service</a>
+        <a href="https://github.com/abdulwalidal/secure-backup" target="_blank" rel="noopener noreferrer" class="btn-github">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container article-container">
+    <div class="article-header">
+      <h1>Privacy Policy</h1>
+      <p>Last Updated: October 2, 2026</p>
+    </div>
+
+    <div class="article-body">
+      <section>
+        <h2>1. Overview & Architecture</h2>
+        <p><strong>Secure Backup</strong> is an open-source, client-side desktop backup and encryption application developed by Abdul Wali Dal. The software is distributed under the MIT License and operates entirely locally on your personal desktop computer.</p>
+        <p>We do not operate any proprietary servers, telemetry trackers, advertisement networks, or cloud databases. All cryptographic operations (passphrase hashing, key derivation, AES-256-GCM authenticated encryption, and SQLite catalog transactions) take place strictly on your local device.</p>
+      </section>
+
+      <section>
+        <h2>2. Information We Access and Process</h2>
+        <p>Because Secure Backup is client-side desktop software, the authors and maintainers of Secure Backup do not collect, store, transmit, or sell any of your personal data or file contents. Specifically:</p>
+        <ul>
+          <li><strong>Local Files & Backups:</strong> Selected folders are read directly from your filesystem and encrypted with AES-256-GCM prior to archive generation. Your plaintext files never leave your machine.</li>
+          <li><strong>Passphrases & Keys:</strong> Passphrases are processed in local memory using Argon2id with random salts. Passphrases and derived keys are never logged, written to disk, or sent across any network.</li>
+          <li><strong>Local Database:</strong> Backup snapshot history, file sizes, SHA-256 integrity hashes, and cloud sync records are stored solely in a local SQLite file (<code>~/.local/share/secure-backup/backup.db</code>) on your computer.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>3. Google User Data & Google Drive Integration</h2>
+        <p>Secure Backup offers optional cloud synchronization to your personal Google Drive storage. When you choose to connect your Google account:</p>
+        <ul>
+          <li><strong>Authentication:</strong> Authentication occurs via desktop OAuth 2.0 with Proof Key for Code Exchange (PKCE) over a temporary local loopback server (<code>http://127.0.0.1:8080</code>). Your Google password is never seen or collected by Secure Backup.</li>
+          <li><strong>OAuth Scopes Requested:</strong> Secure Backup requests only the <code>https://www.googleapis.com/auth/drive.file</code> scope along with basic profile identification (<code>userinfo.email</code>, <code>openid</code>).</li>
+          <li><strong>Scope Limitations:</strong> The <code>drive.file</code> scope restricts our application so that it can <em>only</em> access, create, and modify files and folders that Secure Backup itself has created (specifically, the isolated <code>Secure Backup Vault</code> folder). <strong>Secure Backup cannot and does not access, view, modify, or delete any of your other personal Google Drive files, photos, or documents.</strong></li>
+          <li><strong>Token Storage:</strong> OAuth access tokens and refresh tokens received from Google are stored exclusively in your local SQLite ledger with restricted operating system permissions (<code>chmod 600</code>). Tokens are never shared with or transmitted to any third party.</li>
+          <li><strong>Uploaded Data:</strong> All files uploaded to Google Drive are encrypted ciphertext (<code>.enc</code>) and structured JSON manifests. Even Google cannot view the plaintext content of your backups without your client-side passphrase.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>4. Google API Services User Data Policy Compliance</h2>
+        <div class="highlight-box">
+          <p><strong>Limited Use Requirements:</strong> Secure Backup's use and transfer of information received from Google APIs to any other app will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" style="color: #60a5fa;">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+        </div>
+        <p>Specifically:</p>
+        <ul>
+          <li>Google user data is used solely to facilitate user-initiated backup synchronization and disaster recovery catalog discovery.</li>
+          <li>We do not transfer or disclose Google user data to third parties, advertising platforms, data brokers, or external cloud services.</li>
+          <li>We do not use Google user data to serve advertisements or train machine learning/AI models.</li>
+          <li>Humans are not permitted to read Google user data or uploaded files.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>5. User Control & Data Deletion</h2>
+        <p>You maintain complete control over your cloud integrations and local data at all times:</p>
+        <ul>
+          <li><strong>Disconnecting Accounts:</strong> You can disconnect Google Drive at any time from within the application's <strong>Settings</strong> tab. Disconnecting immediately deletes your access and refresh tokens from your local database.</li>
+          <li><strong>Revoking Permissions:</strong> You can revoke Secure Backup's access to your Google account at any time through <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" style="color: #60a5fa;">Google Account Permissions</a>.</li>
+          <li><strong>Deleting Cloud Files:</strong> You can delete any uploaded snapshot from your Google Drive by deleting the <code>Secure Backup Vault</code> folder directly in Google Drive or within the app interface.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>6. Contact Information</h2>
+        <p>If you have any questions, feedback, or security inquiries regarding this Privacy Policy or Secure Backup, please contact the maintainer:</p>
+        <p><strong>Developer:</strong> Abdul Wali Dal<br>
+        <strong>Email:</strong> <a href="mailto:23swabdul@gmail.com" style="color: #60a5fa;">23swabdul@gmail.com</a><br>
+        <strong>GitHub Repository:</strong> <a href="https://github.com/abdulwalidal/secure-backup" target="_blank" rel="noopener noreferrer" style="color: #60a5fa;">https://github.com/abdulwalidal/secure-backup</a></p>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container footer-content">
+      <span>Secure Backup Open Source Project &copy; 2026. Released under the MIT License.</span>
+      <div class="footer-links">
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="terms.html">Terms of Service</a>
+        <a href="https://github.com/abdulwalidal/secure-backup">Source Code</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
