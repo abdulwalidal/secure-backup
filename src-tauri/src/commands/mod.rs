@@ -1,5 +1,5 @@
-use crate::backup::{create_local_backup, list_local_backups};
-use crate::models::{BackupManifest, BackupResult, CommandResult, FolderInfo};
+use crate::backup::{create_local_backup, get_backups_size, list_local_backups};
+use crate::models::{BackupManifest, BackupResult, CommandResult, FolderInfo, StorageStats};
 use std::fs;
 use std::path::Path;
 
@@ -541,5 +541,51 @@ pub async fn restore_snapshot(
             data: None,
             error: Some(format!("Restore background task failed: {}", join_err)),
         },
+    }
+}
+
+#[tauri::command]
+pub fn get_storage_stats() -> CommandResult<StorageStats> {
+    let backup_path = crate::backup::get_backups_dir();
+
+    if let Err(error) = fs::create_dir_all(&backup_path) {
+        return CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Failed to create backup directory: {}", error)),
+        };
+    }
+    let storage_root = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let used_space_bytes = match get_backups_size() {
+        Ok(size) => size,
+        Err(error) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to calculate backup storage usage: {}", error)),
+            };
+        }
+    };
+
+    let free_space_bytes = match fs2::available_space(&storage_root) {
+        Ok(space) => space,
+        Err(error) => {
+            return CommandResult {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to calculate available disk space: {}", error)),
+            };
+        }
+    };
+
+    CommandResult {
+        success: true,
+        data: Some(StorageStats {
+            backup_path: backup_path.to_string_lossy().to_string(),
+            free_space_bytes,
+            used_space_bytes,
+        }),
+        error: None,
     }
 }
