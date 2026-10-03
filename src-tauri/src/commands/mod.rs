@@ -306,126 +306,126 @@ pub fn disconnect_cloud_provider(provider_type: String) -> CommandResult<bool> {
 }
 
 #[tauri::command]
-pub fn sync_snapshot_to_cloud(
+pub async fn sync_snapshot_to_cloud(
     snapshot_id: String,
     provider_type: String,
 ) -> CommandResult<crate::cloud::UploadSummary> {
     use crate::cloud::CloudProvider;
 
-    let conn = match crate::db::get_connection() {
-        Ok(c) => c,
-        Err(e) => {
-            return CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            }
-        }
-    };
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        let conn = match crate::db::get_connection() {
+            Ok(c) => c,
+            Err(e) => return Err(e),
+        };
 
-    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
-        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
-        match gdrive.upload_snapshot(&conn, &snapshot_id) {
-            Ok(summary) => CommandResult {
-                success: true,
-                data: Some(summary),
-                error: None,
-            },
-            Err(e) => CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            },
+        if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+            let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
+            gdrive.upload_snapshot(&conn, &snapshot_id)
+        } else {
+            Err(format!("Unsupported cloud provider: {}", provider_type))
         }
-    } else {
-        CommandResult {
+    });
+
+    match join_handle.await {
+        Ok(Ok(summary)) => CommandResult {
+            success: true,
+            data: Some(summary),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
             success: false,
             data: None,
-            error: Some(format!("Unsupported cloud provider: {}", provider_type)),
-        }
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Sync background task failed: {}", join_err)),
+        },
     }
 }
 
 #[tauri::command]
-pub fn discover_cloud_snapshots(
+pub async fn discover_cloud_snapshots(
     provider_type: String,
 ) -> CommandResult<Vec<crate::cloud::RemoteSnapshotSummary>> {
     use crate::cloud::CloudProvider;
 
-    let conn = match crate::db::get_connection() {
-        Ok(c) => c,
-        Err(e) => {
-            return CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            }
-        }
-    };
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        let conn = match crate::db::get_connection() {
+            Ok(c) => c,
+            Err(e) => return Err(e),
+        };
 
-    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
-        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
-        match gdrive.discover_remote_snapshots(&conn) {
-            Ok(snapshots) => CommandResult {
-                success: true,
-                data: Some(snapshots),
-                error: None,
-            },
-            Err(e) => CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            },
+        if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+            let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
+            gdrive.discover_remote_snapshots(&conn)
+        } else {
+            Err(format!("Unsupported cloud provider: {}", provider_type))
         }
-    } else {
-        CommandResult {
+    });
+
+    match join_handle.await {
+        Ok(Ok(snapshots)) => CommandResult {
+            success: true,
+            data: Some(snapshots),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
             success: false,
             data: None,
-            error: Some(format!("Unsupported cloud provider: {}", provider_type)),
-        }
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Discovery background task failed: {}", join_err)),
+        },
     }
 }
 
 #[tauri::command]
-pub fn rebuild_database_from_cloud(provider_type: String) -> CommandResult<usize> {
+pub async fn rebuild_database_from_cloud(provider_type: String) -> CommandResult<usize> {
     use crate::cloud::CloudProvider;
 
-    let mut conn = match crate::db::get_connection() {
-        Ok(c) => c,
-        Err(e) => {
-            return CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            }
-        }
-    };
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = match crate::db::get_connection() {
+            Ok(c) => c,
+            Err(e) => return Err(e),
+        };
 
-    if provider_type == "google_drive" || provider_type == "GoogleDrive" {
-        let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
-        match gdrive.rebuild_catalog_from_cloud(&mut conn) {
-            Ok(imported_count) => CommandResult {
-                success: true,
-                data: Some(imported_count),
-                error: None,
-            },
-            Err(e) => CommandResult {
-                success: false,
-                data: None,
-                error: Some(e),
-            },
+        if provider_type == "google_drive" || provider_type == "GoogleDrive" {
+            let gdrive = crate::cloud::gdrive::GoogleDriveProvider;
+            gdrive.rebuild_catalog_from_cloud(&mut conn)
+        } else {
+            Err(format!("Unsupported cloud provider: {}", provider_type))
         }
-    } else {
-        CommandResult {
+    });
+
+    match join_handle.await {
+        Ok(Ok(imported_count)) => CommandResult {
+            success: true,
+            data: Some(imported_count),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
             success: false,
             data: None,
-            error: Some(format!("Unsupported cloud provider: {}", provider_type)),
-        }
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!(
+                "Rebuild catalog background task failed: {}",
+                join_err
+            )),
+        },
     }
 }
 
 #[tauri::command]
-pub fn restore_snapshot(
+pub async fn restore_snapshot(
     snapshot_id: String,
     destination_dir: String,
     passphrase: Option<String>,
@@ -436,11 +436,11 @@ pub fn restore_snapshot(
         restore_cloud_snapshot, restore_local_snapshot, ConflictPolicy, RestoreOptions,
         RestoreSource,
     };
-    use std::path::Path;
+    use std::path::PathBuf;
     use std::str::FromStr;
 
     // 1. Validate destination path
-    let dest_path = Path::new(&destination_dir);
+    let dest_path = PathBuf::from(&destination_dir);
     if !dest_path.exists() {
         return CommandResult {
             success: false,
@@ -495,63 +495,51 @@ pub fn restore_snapshot(
         }
     };
 
-    let options = RestoreOptions {
-        destination_dir: dest_path,
-        passphrase: passphrase.as_deref().filter(|s| !s.trim().is_empty()),
-        conflict_policy: policy,
-    };
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        let options = RestoreOptions {
+            destination_dir: &dest_path,
+            passphrase: passphrase.as_deref().filter(|s| !s.trim().is_empty()),
+            conflict_policy: policy,
+        };
 
-    // 4. Validate that snapshot source is supported and available
-    match parsed_source {
-        RestoreSource::Local => {
-            let local_dir = crate::backup::get_backups_dir().join(&snapshot_id);
-            if !local_dir.exists() {
-                return CommandResult {
-                    success: false,
-                    data: None,
-                    error: Some(format!(
+        // 4. Validate that snapshot source is supported and available
+        match parsed_source {
+            RestoreSource::Local => {
+                let local_dir = crate::backup::get_backups_dir().join(&snapshot_id);
+                if !local_dir.exists() {
+                    return Err(format!(
                         "Snapshot '{}' is not available in local storage. Use Google Drive restore instead.",
                         snapshot_id
-                    )),
-                };
-            }
-            match restore_local_snapshot(&snapshot_id, &options) {
-                Ok(res) => CommandResult {
-                    success: true,
-                    data: Some(res),
-                    error: None,
-                },
-                Err(e) => CommandResult {
-                    success: false,
-                    data: None,
-                    error: Some(e),
-                },
-            }
-        }
-        RestoreSource::GoogleDrive => {
-            let conn = match crate::db::get_connection() {
-                Ok(c) => c,
-                Err(e) => {
-                    return CommandResult {
-                        success: false,
-                        data: None,
-                        error: Some(format!("Database error: {}", e)),
-                    }
+                    ));
                 }
-            };
+                restore_local_snapshot(&snapshot_id, &options)
+            }
+            RestoreSource::GoogleDrive => {
+                let conn = match crate::db::get_connection() {
+                    Ok(c) => c,
+                    Err(e) => return Err(format!("Database error: {}", e)),
+                };
 
-            match restore_cloud_snapshot(&conn, &snapshot_id, &options) {
-                Ok(res) => CommandResult {
-                    success: true,
-                    data: Some(res),
-                    error: None,
-                },
-                Err(e) => CommandResult {
-                    success: false,
-                    data: None,
-                    error: Some(e),
-                },
+                restore_cloud_snapshot(&conn, &snapshot_id, &options)
             }
         }
+    });
+
+    match join_handle.await {
+        Ok(Ok(res)) => CommandResult {
+            success: true,
+            data: Some(res),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Restore background task failed: {}", join_err)),
+        },
     }
 }

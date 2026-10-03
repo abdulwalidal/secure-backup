@@ -6,11 +6,12 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::TcpListener;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 pub const GDRIVE_SETTING_ACCESS_TOKEN: &str = "gdrive_access_token";
 pub const GDRIVE_SETTING_REFRESH_TOKEN: &str = "gdrive_refresh_token";
+pub const GDRIVE_SETTING_TOKEN_EXPIRES_AT: &str = "gdrive_token_expires_at";
 pub const GDRIVE_SETTING_USER_EMAIL: &str = "gdrive_user_email";
 pub const GDRIVE_SETTING_CLIENT_ID: &str = "gdrive_client_id";
 pub const GDRIVE_SETTING_CLIENT_SECRET: &str = "gdrive_client_secret";
@@ -198,6 +199,18 @@ impl GoogleDriveProvider {
         if let Some(refresh_token) = tokens.refresh_token {
             set_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN, &refresh_token)?;
         }
+        if let Some(expires_in) = tokens.expires_in {
+            let expires_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                + expires_in;
+            set_setting(
+                conn,
+                GDRIVE_SETTING_TOKEN_EXPIRES_AT,
+                &expires_at.to_string(),
+            )?;
+        }
         set_setting(conn, GDRIVE_SETTING_USER_EMAIL, &email)?;
 
         Ok(CloudConnectionStatus {
@@ -314,6 +327,15 @@ impl GoogleDriveProvider {
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().unwrap_or_default();
+
+            // If refresh token was revoked, expired, or invalid, clear stale credentials
+            if status.as_u16() == 400 || status.as_u16() == 401 || body.contains("invalid_grant") {
+                let _ = delete_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN);
+                let _ = delete_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN);
+                let _ = delete_setting(conn, GDRIVE_SETTING_TOKEN_EXPIRES_AT);
+                return Err("Google Drive session expired or revoked. Please reconnect Google Drive in Settings.".to_string());
+            }
+
             return Err(format!("Token refresh rejected ({}): {}", status, body));
         }
 
@@ -327,17 +349,59 @@ impl GoogleDriveProvider {
             set_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN, &new_rt)?;
         }
 
+        if let Some(expires_in) = token_data.expires_in {
+            let expires_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                + expires_in;
+            set_setting(
+                conn,
+                GDRIVE_SETTING_TOKEN_EXPIRES_AT,
+                &expires_at.to_string(),
+            )?;
+        }
+
         Ok(token_data.access_token)
     }
 
-    /// Retrieves the current access token, or automatically refreshes it using the refresh token.
+    /// Retrieves the current access token, or automatically refreshes it using the refresh token if expired.
     pub fn get_valid_access_token(conn: &Connection) -> Result<String, String> {
-        if let Some(token) = get_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN)? {
-            return Ok(token);
+        let access_token = get_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN)?;
+        let has_refresh_token = get_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN)?.is_some();
+
+        if !has_refresh_token && access_token.is_none() {
+            return Err(
+                "Google Drive is not connected. Please connect in Settings first.".to_string(),
+            );
         }
 
-        if get_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN)?.is_some() {
-            return Self::refresh_access_token(conn);
+        // If we have a refresh token, check whether the access token is missing or expired
+        if has_refresh_token {
+            let is_expired =
+                if let Some(expires_at_str) = get_setting(conn, GDRIVE_SETTING_TOKEN_EXPIRES_AT)? {
+                    if let Ok(expires_at) = expires_at_str.parse::<u64>() {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        // Proactively refresh if within 60 seconds of expiration or already expired
+                        now + 60 >= expires_at
+                    } else {
+                        true
+                    }
+                } else {
+                    // If there is no expiration timestamp recorded (e.g. legacy/upgrade), refresh to establish one
+                    true
+                };
+
+            if access_token.is_none() || is_expired {
+                return Self::refresh_access_token(conn);
+            }
+        }
+
+        if let Some(token) = access_token {
+            return Ok(token);
         }
 
         Err("Google Drive is not connected. Please connect in Settings first.".to_string())
@@ -699,6 +763,7 @@ impl CloudProvider for GoogleDriveProvider {
     fn disconnect(&self, conn: &Connection) -> Result<(), String> {
         delete_setting(conn, GDRIVE_SETTING_ACCESS_TOKEN)?;
         delete_setting(conn, GDRIVE_SETTING_REFRESH_TOKEN)?;
+        delete_setting(conn, GDRIVE_SETTING_TOKEN_EXPIRES_AT)?;
         delete_setting(conn, GDRIVE_SETTING_USER_EMAIL)?;
         Ok(())
     }

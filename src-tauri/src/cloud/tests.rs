@@ -293,3 +293,73 @@ fn test_cloud_upload_manifest_file_selection() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn test_get_valid_access_token_uses_cached_when_not_expired() {
+    let conn = setup_test_db();
+
+    // Set valid access token with future expiration
+    set_setting(
+        &conn,
+        gdrive::GDRIVE_SETTING_ACCESS_TOKEN,
+        "valid_cached_token",
+    )
+    .unwrap();
+    let future_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3000;
+    set_setting(
+        &conn,
+        gdrive::GDRIVE_SETTING_TOKEN_EXPIRES_AT,
+        &future_time.to_string(),
+    )
+    .unwrap();
+    set_setting(
+        &conn,
+        gdrive::GDRIVE_SETTING_REFRESH_TOKEN,
+        "some_refresh_token",
+    )
+    .unwrap();
+
+    let token = GoogleDriveProvider::get_valid_access_token(&conn)
+        .expect("Should return cached token without making refresh request");
+    assert_eq!(token, "valid_cached_token");
+}
+
+#[test]
+fn test_disconnect_clears_all_auth_settings_including_expires_at() {
+    let conn = setup_test_db();
+    let provider = GoogleDriveProvider;
+
+    set_setting(&conn, gdrive::GDRIVE_SETTING_ACCESS_TOKEN, "token_123").unwrap();
+    set_setting(&conn, gdrive::GDRIVE_SETTING_REFRESH_TOKEN, "rt_123").unwrap();
+    set_setting(&conn, gdrive::GDRIVE_SETTING_TOKEN_EXPIRES_AT, "9999999999").unwrap();
+    set_setting(&conn, gdrive::GDRIVE_SETTING_USER_EMAIL, "test@example.com").unwrap();
+
+    provider
+        .disconnect(&conn)
+        .expect("Disconnect should succeed");
+
+    assert!(
+        crate::db::get_setting(&conn, gdrive::GDRIVE_SETTING_ACCESS_TOKEN)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        crate::db::get_setting(&conn, gdrive::GDRIVE_SETTING_REFRESH_TOKEN)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        crate::db::get_setting(&conn, gdrive::GDRIVE_SETTING_TOKEN_EXPIRES_AT)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        crate::db::get_setting(&conn, gdrive::GDRIVE_SETTING_USER_EMAIL)
+            .unwrap()
+            .is_none()
+    );
+}
