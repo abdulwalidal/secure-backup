@@ -446,9 +446,23 @@
                 <span class="meta-val">SQLite 3.45 (Bundled in Rust binary)</span>
               </div>
               <div class="meta-row">
-                <span class="meta-key">Local Vault Path:</span>
-                <span class="meta-val mono">~/.local/share/secure-backup/</span>
-              </div>
+                  <span class="meta-key">Local Backup Path:</span>
+                  <span id="storage-backup-path" class="meta-val mono">Loading...</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-key">Available Disk Space:</span>
+                  <span id="storage-free-space" class="meta-val">Loading...</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-key">Backup Storage Used:</span>
+                  <span id="storage-used-space" class="meta-val">Loading...</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-key">File Manager:</span>
+                  <button id="btn-open-backup-folder" class="btn btn-secondary btn-sm" type="button">
+                    Open in File Manager
+                  </button>
+                </div>
               <div class="meta-row">
                 <span class="meta-key">Encryption Standard:</span>
                 <span class="meta-val">AES-256-GCM + Argon2id</span>

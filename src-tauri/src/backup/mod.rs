@@ -304,3 +304,26 @@ fn get_manifest_from_db(
 
 #[cfg(test)]
 mod tests;
+
+/// Calculates the total disk space used by local backup archives.
+pub fn get_backups_size() -> io::Result<u64> {
+    let backups_dir = get_backups_dir();
+
+    if !backups_dir.exists() {
+        return Ok(0);
+    }
+
+    let mut total_size = 0u64;
+
+    for entry in WalkDir::new(&backups_dir)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        if entry.file_type().is_file() {
+            total_size += entry.metadata()?.len();
+        }
+    }
+
+    Ok(total_size)
+}
