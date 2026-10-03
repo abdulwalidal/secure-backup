@@ -9,9 +9,9 @@ pub mod restore;
 
 use commands::{
     connect_google_drive, disconnect_cloud_provider, discover_cloud_snapshots, get_backup_history,
-    get_cloud_providers, get_database_snapshot_files, get_database_snapshots, get_database_stats, get_storage_stats,
-    inspect_folder, rebuild_database_from_cloud, restore_snapshot, start_local_backup,
-    sync_snapshot_to_cloud, test_encryption_roundtrip,
+    get_cloud_providers, get_database_snapshot_files, get_database_snapshots, get_database_stats,
+    get_storage_stats, inspect_folder, rebuild_database_from_cloud, restore_snapshot,
+    start_local_backup, sync_snapshot_to_cloud, test_encryption_roundtrip,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -39,7 +39,8 @@ pub fn run() {
             test_encryption_roundtrip,
             get_database_snapshots,
             get_database_snapshot_files,
-            get_database_stats, get_storage_stats,
+            get_database_stats,
+            get_storage_stats,
             get_cloud_providers,
             connect_google_drive,
             disconnect_cloud_provider,

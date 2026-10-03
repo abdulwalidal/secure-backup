@@ -563,7 +563,10 @@ pub fn get_storage_stats() -> CommandResult<StorageStats> {
             return CommandResult {
                 success: false,
                 data: None,
-                error: Some(format!("Failed to calculate backup storage usage: {}", error)),
+                error: Some(format!(
+                    "Failed to calculate backup storage usage: {}",
+                    error
+                )),
             };
         }
     };
@@ -574,7 +577,10 @@ pub fn get_storage_stats() -> CommandResult<StorageStats> {
             return CommandResult {
                 success: false,
                 data: None,
-                error: Some(format!("Failed to calculate available disk space: {}", error)),
+                error: Some(format!(
+                    "Failed to calculate available disk space: {}",
+                    error
+                )),
             };
         }
     };
