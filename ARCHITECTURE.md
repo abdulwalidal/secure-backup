@@ -8,7 +8,8 @@ This document details the system architecture, component boundaries, and securit
 
 ```text
                +--------------------------------------+
-               |        Desktop Webview (WebKit)      |
+               |      Desktop Webview (Native)        |
+               |  (WebKitGTK Linux / WebView2 Windows)|
                |        TypeScript / HTML / CSS       |
                +-------------------+------------------+
                                    |
@@ -49,12 +50,12 @@ This document details the system architecture, component boundaries, and securit
 
 ### Cryptographic Engine (`src-tauri/src/encryption/`)
 - **Key Derivation Function (KDF):** Argon2id (v0x13) with memory cost 19 MiB, 2 iterations, 1 lane, and a 16-byte cryptographically secure random salt generated via OS RNG (`getrandom`).
-- **Authenticated Cipher:** AES-256-GCM (NIST SP 800-38D). Uses unique 12-byte nonces per file and 16-byte Poly1305 authentication tags.
+- **Authenticated Cipher:** AES-256-GCM (NIST SP 800-38D). Uses unique 12-byte nonces per file and 16-byte GHASH authentication tags.
 - **Binary File Container Format:**
   ```text
   +------------------+---------------+---------------+--------------------+
   | Magic (8 Bytes)  | Salt (16 B)   | Nonce (12 B)  | Ciphertext + Tag   |
-  | SECBKP01         | Random Salt   | Unique Nonce  | AES-256-GCM        |
+  | SECBKP01         | Random Salt   | Unique Nonce  | AES-256-GCM (GHASH)|
   +------------------+---------------+---------------+--------------------+
   ```
 - **Integrity Guarantee:** Any alteration to ciphertext, salt, or nonce results in immediate authentication failure and termination of the decryption process.
