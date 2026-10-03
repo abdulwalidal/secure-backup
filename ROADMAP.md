@@ -8,7 +8,7 @@ This document outlines the phased engineering roadmap and long-term milestones f
 
 ### Phase 1: Foundation & Desktop Shell
 - [x] Tauri 2 integration with native Rust core
-- [x] WebKit2GTK desktop webview configuration (Linux & Windows)
+- [x] Native desktop webview integration (WebKitGTK on Linux, WebView2 on Windows)
 - [x] Window lifecycle management, system tray hooks, and application shell
 - [x] Initial build scripts and cross-platform compilation targets
 
