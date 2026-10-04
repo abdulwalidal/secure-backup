@@ -1,12 +1,25 @@
 use crate::encryption::{derive_key, encrypt_file, generate_salt};
 use crate::hashing::hash_file;
-use crate::models::{BackupManifest, BackupResult, FileMetadata};
+use crate::models::{BackupManifest, BackupResult, FileMetadata, ScanOptions};
 use chrono::Utc;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
+
+/// Default directory names pruned by the scanner to eliminate heavy build and cache bloat.
+pub const DEFAULT_EXCLUDED_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    ".cache",
+    ".venv",
+    "__pycache__",
+];
+
+/// Default file names skipped by the scanner (OS-generated metadata files).
+pub const DEFAULT_EXCLUDED_FILES: &[&str] = &[".DS_Store", "Thumbs.db"];
 
 /// Base directory for local backups: ~/.local/share/secure-backup/backups
 pub fn get_backups_dir() -> PathBuf {
@@ -16,14 +29,52 @@ pub fn get_backups_dir() -> PathBuf {
         .join("backups")
 }
 
-/// Recursively scans a source directory, computing file metadata and SHA-256 hashes.
-pub fn scan_directory<P: AsRef<Path>>(source: P) -> io::Result<Vec<FileMetadata>> {
+/// Recursively scans a source directory with configurable exclusion options,
+/// pruning excluded subtrees immediately from recursion to eliminate redundant I/O and hashing.
+pub fn scan_directory_with_options<P: AsRef<Path>>(
+    source: P,
+    options: Option<&ScanOptions>,
+) -> io::Result<Vec<FileMetadata>> {
     let source_path = source.as_ref();
     let mut files = Vec::new();
+
+    let exclude_common = options.map(|o| o.exclude_common).unwrap_or(false);
+    let custom_exclusions: Vec<String> = options
+        .map(|o| o.custom_exclusions.clone())
+        .unwrap_or_default();
 
     for entry in WalkDir::new(source_path)
         .follow_links(false)
         .into_iter()
+        .filter_entry(|entry| {
+            // Never exclude the root scan directory itself
+            if entry.path() == source_path {
+                return true;
+            }
+
+            let file_name = entry.file_name().to_string_lossy();
+
+            if exclude_common {
+                if entry.file_type().is_dir()
+                    && DEFAULT_EXCLUDED_DIRS.iter().any(|d| *d == file_name)
+                {
+                    return false;
+                }
+                if entry.file_type().is_file()
+                    && DEFAULT_EXCLUDED_FILES.iter().any(|f| *f == file_name)
+                {
+                    return false;
+                }
+            }
+
+            if !custom_exclusions.is_empty()
+                && custom_exclusions.iter().any(|ex| ex.as_str() == file_name)
+            {
+                return false;
+            }
+
+            true
+        })
         .filter_map(|e| e.ok())
     {
         if entry.file_type().is_file() {
@@ -37,7 +88,7 @@ pub fn scan_directory<P: AsRef<Path>>(source: P) -> io::Result<Vec<FileMetadata>
             let size_bytes = metadata.len();
             let modified_timestamp = metadata
                 .modified()
-                .unwrap_or(SystemTime::now())
+                .unwrap_or_else(|_| SystemTime::now())
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
@@ -58,11 +109,25 @@ pub fn scan_directory<P: AsRef<Path>>(source: P) -> io::Result<Vec<FileMetadata>
     Ok(files)
 }
 
+/// Recursively scans a source directory, computing file metadata and SHA-256 hashes.
+pub fn scan_directory<P: AsRef<Path>>(source: P) -> io::Result<Vec<FileMetadata>> {
+    scan_directory_with_options(source, None)
+}
+
 /// Creates a structured local backup for the given source directory.
 /// If a passphrase is provided, all files are encrypted using AES-256-GCM with Argon2id.
 pub fn create_local_backup<P: AsRef<Path>>(
     source: P,
     passphrase: Option<&str>,
+) -> io::Result<BackupResult> {
+    create_local_backup_with_options(source, passphrase, None)
+}
+
+/// Creates a structured local backup for the given source directory with custom scan options.
+pub fn create_local_backup_with_options<P: AsRef<Path>>(
+    source: P,
+    passphrase: Option<&str>,
+    scan_options: Option<&ScanOptions>,
 ) -> io::Result<BackupResult> {
     let start_time = Instant::now();
     let source_path = source.as_ref();
@@ -79,8 +144,8 @@ pub fn create_local_backup<P: AsRef<Path>>(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "backup".to_string());
 
-    // 1. Scan and hash all files
-    let mut files = scan_directory(source_path)?;
+    // 1. Scan and hash all files with scan options applied
+    let mut files = scan_directory_with_options(source_path, scan_options)?;
     let total_size_bytes: u64 = files.iter().map(|f| f.size_bytes).sum();
     let total_files = files.len();
 
