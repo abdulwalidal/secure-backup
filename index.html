@@ -5,7 +5,33 @@
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Secure Backup</title>
-    <script type="module" src="/src/main.ts" defer></script>
+    <script>
+      function initializeNavigationFallback() {
+        const bindNavigation = () => {
+          const navItems = document.querySelectorAll(".nav-item");
+          const tabPanes = document.querySelectorAll(".tab-pane");
+
+          navItems.forEach((item) => {
+            item.addEventListener("click", () => {
+              const tabId = item.getAttribute("data-tab");
+              if (!tabId) return;
+
+              navItems.forEach((button) => button.classList.remove("active"));
+              tabPanes.forEach((pane) => pane.classList.remove("active"));
+              item.classList.add("active");
+              document.getElementById(`tab-${tabId}`)?.classList.add("active");
+            });
+          });
+        };
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", bindNavigation, { once: true });
+        } else {
+          bindNavigation();
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.ts" defer onerror="initializeNavigationFallback()"></script>
   </head>
 
   <body>
@@ -100,8 +126,14 @@
 
               <div class="folder-selection-box">
                 <div id="selected-folder-display" class="folder-empty-state">
-                  <p>No folder selected yet.</p>
-                  <span>Select a directory to begin.</span>
+                  <span class="empty-state-icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                      <path d="M12 11v6m-3-3h6"/>
+                    </svg>
+                  </span>
+                  <p class="empty-state-title">Choose a folder to protect</p>
+                  <span class="empty-state-description">Select a directory to review its contents and prepare an encrypted backup.</span>
                 </div>
 
                 <div class="action-row">
@@ -322,8 +354,17 @@
             </button>
           </header>
 
-          <div id="history-container" class="history-list">
-            <!-- Dynamically populated -->
+          <div id="history-container" class="history-list" aria-live="polite">
+            <div class="empty-state">
+              <span class="empty-state-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 8v13H3V8"/>
+                  <path d="M1 3h22v5H1zM10 12h4"/>
+                </svg>
+              </span>
+              <h2 class="empty-state-title">No backups yet</h2>
+              <p class="empty-state-description">Choose a folder from the Dashboard and create an encrypted backup to start your history.</p>
+            </div>
           </div>
         </section>
 
@@ -370,8 +411,15 @@
             </div>
 
             <div id="dr-snapshots-container" class="dr-snapshots-list">
-              <div class="placeholder-box">
-                <p>Click "Scan Cloud" above to discover encrypted snapshots in your connected Google Drive.</p>
+              <div class="empty-state">
+                <span class="empty-state-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 16.2A4.5 4.5 0 0 0 18 7.5a6 6 0 0 0-11.7 1.8A4 4 0 0 0 7 17h2"/>
+                    <path d="M12 12v9m-3-3 3 3 3-3"/>
+                  </svg>
+                </span>
+                <h3 class="empty-state-title">Find your cloud snapshots</h3>
+                <p class="empty-state-description">Connect Google Drive in Settings, then scan to discover encrypted snapshots in your vault.</p>
               </div>
             </div>
           </div>
