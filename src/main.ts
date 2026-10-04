@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 interface FolderInfo {
   path: string;
@@ -43,6 +44,12 @@ interface CommandResult<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+interface StorageStats {
+  backup_path: string;
+  free_space_bytes: number;
+  used_space_bytes: number;
 }
 
 interface CloudConnectionStatus {
@@ -97,6 +104,32 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
+async function loadStorageStats(): Promise<void> {
+  const backupPathElement = document.getElementById("storage-backup-path");
+  const freeSpaceElement = document.getElementById("storage-free-space");
+  const usedSpaceElement = document.getElementById("storage-used-space");
+
+  if (!backupPathElement || !freeSpaceElement || !usedSpaceElement) {
+    return;
+  }
+
+  try {
+    const result = await invoke<CommandResult<StorageStats>>("get_storage_stats");
+
+    if (!result.success || !result.data) {
+      throw new Error(result.error || "Failed to load storage statistics.");
+    }
+
+    backupPathElement.textContent = result.data.backup_path;
+    freeSpaceElement.textContent = formatBytes(result.data.free_space_bytes);
+    usedSpaceElement.textContent = formatBytes(result.data.used_space_bytes);
+  } catch (error) {
+    console.error("Failed to load storage statistics:", error);
+    backupPathElement.textContent = "Unavailable";
+    freeSpaceElement.textContent = "Unavailable";
+    usedSpaceElement.textContent = "Unavailable";
+  }
+}
 function formatDate(isoStr: string): string {
   try {
     const d = new Date(isoStr);
@@ -140,12 +173,31 @@ function initializeApp() {
         loadBackupHistory();
       } else if (tabId === "settings") {
         loadCloudProviders();
+        loadStorageStats();
       } else if (tabId === "restore") {
         scanCloudSnapshots();
       }
     });
   });
 
+  const btnOpenBackupFolder = document.getElementById(
+    "btn-open-backup-folder"
+  ) as HTMLButtonElement | null;
+
+  btnOpenBackupFolder?.addEventListener("click", async () => {
+    try {
+      const result = await invoke<CommandResult<StorageStats>>("get_storage_stats");
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "Could not get the backup folder path.");
+      }
+
+      await revealItemInDir(result.data.backup_path);
+    } catch (error) {
+      console.error("Failed to open backup folder:", error);
+      alert("Could not open the backup folder. Please make sure the folder exists.");
+    }
+  });
   // UI elements
   const btnSelectFolder = document.getElementById("btn-select-folder") as HTMLButtonElement | null;
   const btnClearSelection = document.getElementById("btn-clear-selection") as HTMLButtonElement | null;
