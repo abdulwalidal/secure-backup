@@ -459,6 +459,57 @@ body {
   font-weight: 600;
 }
 
+/* Backup Options & Scanner Exclusion Filter */
+.backup-options-group {
+  margin-top: 18px;
+  padding: 12px 14px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--accent-color);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.checkbox-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.checkbox-text strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.checkbox-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.checkbox-hint code {
+  font-size: 11px;
+  background-color: var(--bg-primary);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-color);
+}
+
 /* Folder Metadata Display */
 .folder-meta-card {
   margin-top: 18px;

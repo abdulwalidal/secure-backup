@@ -37,6 +37,27 @@ pub struct BackupResult {
     pub elapsed_millis: u128,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanOptions {
+    #[serde(default = "default_true")]
+    pub exclude_common: bool,
+    #[serde(default)]
+    pub custom_exclusions: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            exclude_common: true,
+            custom_exclusions: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FolderInfo {
     pub path: String,

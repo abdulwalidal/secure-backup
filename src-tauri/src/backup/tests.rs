@@ -473,3 +473,161 @@ fn test_legacy_manifest_deserialization_backward_compatibility() {
     assert_eq!(manifest.files[0].stored_filename, None);
     assert_eq!(manifest.files[0].relative_path, "tax.pdf");
 }
+
+#[test]
+fn test_scanner_excludes_default_build_and_cache_directories() {
+    use crate::backup::scan_directory_with_options;
+    use crate::models::ScanOptions;
+
+    let test_dir = std::env::temp_dir().join("sb_scanner_exclude_defaults_test");
+    let _ = fs::remove_dir_all(&test_dir);
+
+    // Create legitimate project files
+    let src_dir = test_dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), b"fn main() {}").unwrap();
+    fs::write(test_dir.join("README.md"), b"# Project").unwrap();
+
+    // Create bloat directories and files that must be excluded
+    let node_modules = test_dir.join("node_modules").join("pkg");
+    fs::create_dir_all(&node_modules).unwrap();
+    fs::write(node_modules.join("index.js"), b"console.log()").unwrap();
+
+    let git_dir = test_dir.join(".git").join("objects");
+    fs::create_dir_all(&git_dir).unwrap();
+    fs::write(git_dir.join("sample.pack"), b"blob").unwrap();
+
+    let target_dir = test_dir.join("target").join("debug");
+    fs::create_dir_all(&target_dir).unwrap();
+    fs::write(target_dir.join("binary"), b"elf").unwrap();
+
+    let cache_dir = test_dir.join(".cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    fs::write(cache_dir.join("cached.tmp"), b"cache").unwrap();
+
+    let venv_dir = test_dir.join(".venv").join("bin");
+    fs::create_dir_all(&venv_dir).unwrap();
+    fs::write(venv_dir.join("python"), b"script").unwrap();
+
+    let pycache_dir = test_dir.join("__pycache__");
+    fs::create_dir_all(&pycache_dir).unwrap();
+    fs::write(pycache_dir.join("lib.cpython.pyc"), b"bytecode").unwrap();
+
+    fs::write(test_dir.join(".DS_Store"), b"desktop-services-store").unwrap();
+    fs::write(test_dir.join("Thumbs.db"), b"thumbs-database").unwrap();
+
+    let options = ScanOptions {
+        exclude_common: true,
+        custom_exclusions: Vec::new(),
+    };
+
+    let files = scan_directory_with_options(&test_dir, Some(&options)).unwrap();
+    let rel_paths: Vec<String> = files.iter().map(|f| f.relative_path.clone()).collect();
+
+    assert_eq!(
+        files.len(),
+        2,
+        "Only main.rs and README.md should be scanned when exclude_common is enabled"
+    );
+    assert!(
+        rel_paths.contains(&"src/main.rs".to_string())
+            || rel_paths.contains(&"src\\main.rs".to_string())
+    );
+    assert!(rel_paths.contains(&"README.md".to_string()));
+
+    // Verify bloat items are completely absent
+    for p in &rel_paths {
+        assert!(!p.contains("node_modules"));
+        assert!(!p.contains(".git"));
+        assert!(!p.contains("target"));
+        assert!(!p.contains(".cache"));
+        assert!(!p.contains(".venv"));
+        assert!(!p.contains("__pycache__"));
+        assert!(!p.contains(".DS_Store"));
+        assert!(!p.contains("Thumbs.db"));
+    }
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_scanner_includes_all_files_when_exclusion_disabled() {
+    use crate::backup::scan_directory_with_options;
+    use crate::models::ScanOptions;
+
+    let test_dir = std::env::temp_dir().join("sb_scanner_include_all_test");
+    let _ = fs::remove_dir_all(&test_dir);
+
+    let nm = test_dir.join("node_modules");
+    fs::create_dir_all(&nm).unwrap();
+    fs::write(nm.join("lib.js"), b"lib").unwrap();
+    fs::write(test_dir.join("file.txt"), b"txt").unwrap();
+    fs::write(test_dir.join(".DS_Store"), b"store").unwrap();
+
+    let options = ScanOptions {
+        exclude_common: false,
+        custom_exclusions: Vec::new(),
+    };
+
+    let files = scan_directory_with_options(&test_dir, Some(&options)).unwrap();
+    assert_eq!(
+        files.len(),
+        3,
+        "All 3 files must be included when exclude_common is false"
+    );
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_scanner_custom_exclusion_list() {
+    use crate::backup::scan_directory_with_options;
+    use crate::models::ScanOptions;
+
+    let test_dir = std::env::temp_dir().join("sb_scanner_custom_exclude_test");
+    let _ = fs::remove_dir_all(&test_dir);
+
+    let custom_dir = test_dir.join("dist");
+    fs::create_dir_all(&custom_dir).unwrap();
+    fs::write(custom_dir.join("bundle.js"), b"bundle").unwrap();
+    fs::write(test_dir.join("index.html"), b"html").unwrap();
+
+    let options = ScanOptions {
+        exclude_common: false,
+        custom_exclusions: vec!["dist".to_string()],
+    };
+
+    let files = scan_directory_with_options(&test_dir, Some(&options)).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].relative_path, "index.html");
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_create_local_backup_with_options_respects_exclusions() {
+    use crate::backup::create_local_backup_with_options;
+    use crate::models::ScanOptions;
+
+    let test_dir = std::env::temp_dir().join("sb_backup_options_test");
+    let _ = fs::remove_dir_all(&test_dir);
+
+    let nm = test_dir.join("node_modules");
+    fs::create_dir_all(&nm).unwrap();
+    fs::write(nm.join("huge.js"), b"lots of dependencies").unwrap();
+    fs::write(test_dir.join("notes.txt"), b"important user notes").unwrap();
+
+    let options = ScanOptions {
+        exclude_common: true,
+        custom_exclusions: Vec::new(),
+    };
+
+    let backup_res =
+        create_local_backup_with_options(&test_dir, Some("password123"), Some(&options)).unwrap();
+
+    assert_eq!(backup_res.manifest.total_files, 1);
+    assert_eq!(backup_res.manifest.files[0].relative_path, "notes.txt");
+
+    let _ = fs::remove_dir_all(&test_dir);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
