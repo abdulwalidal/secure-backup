@@ -117,7 +117,7 @@ function escapeHtml(str: string): string {
 
 let currentSelectedPath: string | null = null;
 
-window.addEventListener("DOMContentLoaded", () => {
+function initializeApp() {
   // Navigation handling
   const navItems = document.querySelectorAll<HTMLButtonElement>(".nav-item");
   const tabPanes = document.querySelectorAll<HTMLElement>(".tab-pane");
@@ -532,8 +532,14 @@ window.addEventListener("DOMContentLoaded", () => {
     if (folderDisplay) {
       folderDisplay.className = "folder-empty-state";
       folderDisplay.innerHTML = `
-        <p>No folder selected yet.</p>
-        <span>Select a directory to begin.</span>
+        <span class="empty-state-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            <path d="M12 11v6m-3-3h6"/>
+          </svg>
+        </span>
+        <p class="empty-state-title">Choose a folder to protect</p>
+        <span class="empty-state-description">Select a directory to review its contents and prepare an encrypted backup.</span>
       `;
     }
     if (folderMetaCard) {
@@ -636,9 +642,15 @@ window.addEventListener("DOMContentLoaded", () => {
 
     if (manifests.length === 0) {
       historyContainer.innerHTML = `
-        <div class="placeholder-box">
-          <p>No backups recorded yet.</p>
-          <p style="font-size: 12px; margin-top: 6px;">Select a folder in Dashboard, enter a passphrase, and click "Start Encrypted Backup".</p>
+        <div class="empty-state">
+          <span class="empty-state-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 8v13H3V8"/>
+              <path d="M1 3h22v5H1zM10 12h4"/>
+            </svg>
+          </span>
+          <h2 class="empty-state-title">No backups yet</h2>
+          <p class="empty-state-description">Choose a folder from the Dashboard and create an encrypted backup to start your history.</p>
         </div>
       `;
       return;
@@ -932,8 +944,15 @@ window.addEventListener("DOMContentLoaded", () => {
       if (snapshots.length === 0) {
         hideDrStatus();
         drSnapshotsContainer.innerHTML = `
-          <div class="placeholder-box">
-            <p>No snapshots found in remote Google Drive vault folder.</p>
+          <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 16.2A4.5 4.5 0 0 0 18 7.5a6 6 0 0 0-11.7 1.8A4 4 0 0 0 7 17h2"/>
+                <path d="M12 12v9m-3-3 3 3 3-3"/>
+              </svg>
+            </span>
+            <h3 class="empty-state-title">No cloud snapshots found</h3>
+            <p class="empty-state-description">Once you sync a local backup to Google Drive, scan again to discover it here.</p>
           </div>
         `;
         return;
@@ -1277,5 +1296,11 @@ window.addEventListener("DOMContentLoaded", () => {
   btnCopyPass?.addEventListener("click", handleCopyPassphrase);
   btnScanCloud?.addEventListener("click", scanCloudSnapshots);
   btnRebuildCatalog?.addEventListener("click", handleRebuildCatalog);
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeApp, { once: true });
+} else {
+  initializeApp();
+}
 
