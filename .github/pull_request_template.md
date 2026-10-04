@@ -1,24 +1,21 @@
 ## Summary
-
-<!-- Provide a concise description of the changes introduced in this pull request. -->
+<!-- Briefly describe what this PR does and why. -->
 
 ## Changes Included
-
 - [ ] New feature implementation
 - [ ] Bug fix
 - [ ] Refactoring / performance improvement
 - [ ] Security fix
 - [ ] Documentation update
+- [ ] UI / Styling improvement
 
 ## Related Issue
-
-<!-- Reference the related issue: e.g., Closes #14 -->
+<!-- Replace with the issue number, e.g., Closes #7 -->
+Closes #
 
 ## Verification Checklist
-
-- [ ] Code complies with project styling guidelines (`cargo fmt` and strict TypeScript).
-- [ ] Self-review of all modified code has been performed.
-- [ ] Documentation has been updated to reflect changes where applicable.
+- [ ] Code formatted with standard Rust formatter (`cargo fmt --all --manifest-path src-tauri/Cargo.toml`).
+- [ ] Frontend typechecks and builds cleanly (`npm run build`).
+- [ ] All unit and integration tests pass (`cargo test --manifest-path src-tauri/Cargo.toml`).
+- [ ] Self-review of modified code has been performed.
 - [ ] No new compiler warnings or lint errors are introduced.
-- [ ] Unit and integration tests pass successfully (`cargo test --manifest-path src-tauri/Cargo.toml`).
-- [ ] Frontend builds cleanly (`npm run build`).

@@ -363,3 +363,148 @@ fn test_disconnect_clears_all_auth_settings_including_expires_at() {
             .is_none()
     );
 }
+
+#[test]
+fn test_retry_transient_status_classification() {
+    use super::retry::is_transient_status;
+
+    // Transient codes that should trigger a retry
+    assert!(is_transient_status(408));
+    assert!(is_transient_status(429));
+    assert!(is_transient_status(500));
+    assert!(is_transient_status(502));
+    assert!(is_transient_status(503));
+    assert!(is_transient_status(504));
+
+    // Permanent client errors that must fail fast
+    assert!(!is_transient_status(200));
+    assert!(!is_transient_status(400));
+    assert!(!is_transient_status(401));
+    assert!(!is_transient_status(403));
+    assert!(!is_transient_status(404));
+}
+
+#[test]
+fn test_retry_cloud_error_string_detection() {
+    use super::gdrive::GoogleDriveProvider;
+
+    assert!(GoogleDriveProvider::is_retryable_cloud_error(
+        "Operation timed out"
+    ));
+    assert!(GoogleDriveProvider::is_retryable_cloud_error(
+        "Connection refused"
+    ));
+    assert!(GoogleDriveProvider::is_retryable_cloud_error(
+        "Google Drive API rate limit exceeded (429)"
+    ));
+    assert!(GoogleDriveProvider::is_retryable_cloud_error(
+        "Service Unavailable (503)"
+    ));
+    assert!(GoogleDriveProvider::is_retryable_cloud_error(
+        "Gateway Timeout (504)"
+    ));
+
+    // Permanent errors must not be retried
+    assert!(!GoogleDriveProvider::is_retryable_cloud_error(
+        "File not found (404)"
+    ));
+    assert!(!GoogleDriveProvider::is_retryable_cloud_error(
+        "Access forbidden (403)"
+    ));
+    assert!(!GoogleDriveProvider::is_retryable_cloud_error(
+        "Invalid syntax in request"
+    ));
+}
+
+#[test]
+fn test_execute_with_retry_succeeds_on_first_try() {
+    use super::retry::{execute_with_retry, RetryConfig};
+
+    let config = RetryConfig::for_test();
+    let mut call_count = 0;
+
+    let res = execute_with_retry(
+        &config,
+        "test_op",
+        || {
+            call_count += 1;
+            Ok::<_, String>("success")
+        },
+        |_| true,
+    );
+
+    assert_eq!(res.unwrap(), "success");
+    assert_eq!(call_count, 1);
+}
+
+#[test]
+fn test_execute_with_retry_succeeds_after_transient_failures() {
+    use super::retry::{execute_with_retry, RetryConfig};
+
+    let config = RetryConfig::for_test();
+    let mut attempts = 0;
+
+    let res = execute_with_retry(
+        &config,
+        "test_op_transient",
+        || {
+            attempts += 1;
+            if attempts < 3 {
+                Err("Server error (503)".to_string())
+            } else {
+                Ok("recovered_payload")
+            }
+        },
+        |err| err.contains("503"),
+    );
+
+    assert_eq!(res.unwrap(), "recovered_payload");
+    assert_eq!(attempts, 3);
+}
+
+#[test]
+fn test_execute_with_retry_stops_on_permanent_error() {
+    use super::retry::{execute_with_retry, RetryConfig};
+
+    let config = RetryConfig::for_test();
+    let mut attempts = 0;
+
+    let res = execute_with_retry(
+        &config,
+        "test_op_permanent",
+        || {
+            attempts += 1;
+            Err::<(), _>("Unauthorized (401)".to_string())
+        },
+        |err| err.contains("503"), // Only retry on 503
+    );
+
+    assert!(res.is_err());
+    assert_eq!(attempts, 1); // Should immediately fail without looping
+}
+
+#[test]
+fn test_execute_with_retry_exhausts_attempts() {
+    use super::retry::{execute_with_retry, RetryConfig};
+
+    let config = RetryConfig {
+        max_attempts: 3,
+        initial_delay_ms: 1,
+        max_delay_ms: 5,
+        backoff_factor: 2,
+    };
+    let mut attempts = 0;
+
+    let res = execute_with_retry(
+        &config,
+        "test_op_exhausted",
+        || {
+            attempts += 1;
+            Err::<(), _>("Gateway Timeout (504)".to_string())
+        },
+        |err| err.contains("504"),
+    );
+
+    assert!(res.is_err());
+    assert_eq!(attempts, 3);
+}

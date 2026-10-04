@@ -88,3 +88,10 @@ pub struct DbStats {
     pub total_files_indexed: usize,
     pub total_bytes_backed_up: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageStats {
+    pub backup_path: String,
+    pub free_space_bytes: u64,
+    pub used_space_bytes: u64,
+}

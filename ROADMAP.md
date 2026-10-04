@@ -8,7 +8,7 @@ This document outlines the phased engineering roadmap and long-term milestones f
 
 ### Phase 1: Foundation & Desktop Shell
 - [x] Tauri 2 integration with native Rust core
-- [x] WebKit2GTK desktop webview configuration (Linux & Windows)
+- [x] Native desktop webview integration (WebKitGTK on Linux, WebView2 on Windows)
 - [x] Window lifecycle management, system tray hooks, and application shell
 - [x] Initial build scripts and cross-platform compilation targets
 
@@ -63,7 +63,7 @@ This document outlines the phased engineering roadmap and long-term milestones f
 - [ ] Disaster recovery discovery: listing remote snapshots from Google Drive vault
 - [x] Remote manifest downloading and local SQLite catalog reconstruction on fresh installs
 - [x] Client-side backup manifest encryption (`SECBKP01`) protecting metadata before cloud upload (#27)
-- [ ] Automated network retry handling with exponential backoff
+- [x] Automated network retry handling with exponential backoff
 
 ### Phase 10: Complete File Restoration Engine
 - [x] Snapshot download and extraction workflow from local and remote vaults
