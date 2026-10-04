@@ -1,3 +1,4 @@
+use super::retry::{execute_with_retry, is_transient_status, RetryConfig};
 use super::{CloudConnectionStatus, CloudProvider, CloudProviderType};
 use crate::db::{delete_setting, get_setting, set_setting};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -318,11 +319,19 @@ impl GoogleDriveProvider {
             form_params.push(("client_secret", sec.as_str()));
         }
 
-        let res = client
-            .post(GOOGLE_TOKEN_ENDPOINT)
-            .form(&form_params)
-            .send()
-            .map_err(|e| format!("Token refresh network request failed: {}", e))?;
+        let retry_config = RetryConfig::default();
+        let res = execute_with_retry(
+            &retry_config,
+            "refresh_access_token",
+            || {
+                client
+                    .post(GOOGLE_TOKEN_ENDPOINT)
+                    .form(&form_params)
+                    .send()
+                    .map_err(|e| format!("Token refresh network request failed: {}", e))
+            },
+            |err| Self::is_retryable_cloud_error(err),
+        )?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -413,6 +422,20 @@ impl GoogleDriveProvider {
         folder_name: &str,
         parent_id: Option<&str>,
     ) -> Result<String, String> {
+        let retry_config = RetryConfig::default();
+        execute_with_retry(
+            &retry_config,
+            "find_or_create_folder",
+            || Self::find_or_create_folder_inner(access_token, folder_name, parent_id),
+            |err| Self::is_retryable_cloud_error(err),
+        )
+    }
+
+    fn find_or_create_folder_inner(
+        access_token: &str,
+        folder_name: &str,
+        parent_id: Option<&str>,
+    ) -> Result<String, String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(15))
             .build()
@@ -449,6 +472,13 @@ impl GoogleDriveProvider {
                     return Ok(first.id.clone());
                 }
             }
+        } else if is_transient_status(search_res.status().as_u16()) {
+            let status = search_res.status();
+            let err_body = search_res.text().unwrap_or_default();
+            return Err(format!(
+                "Transient error searching folder ({}): {}",
+                status, err_body
+            ));
         }
 
         // 2. Folder does not exist, create it
@@ -495,8 +525,58 @@ impl GoogleDriveProvider {
         Ok(created.id)
     }
 
+    /// Checks whether an error message or condition represents a transient, retryable Google Drive error.
+    pub fn is_retryable_cloud_error(err_str: &str) -> bool {
+        let lower = err_str.to_lowercase();
+        if lower.contains("timed out")
+            || lower.contains("connection refused")
+            || lower.contains("connection reset")
+            || lower.contains("broken pipe")
+            || lower.contains("network unreachable")
+            || lower.contains("dns error")
+        {
+            return true;
+        }
+
+        // Check common status code signatures like "(429)", "(500)", "(503)"
+        for code in [408, 429, 500, 502, 503, 504] {
+            if lower.contains(&format!("({})", code))
+                || lower.contains(&format!("status {}", code))
+                || lower.contains(&format!("code {}", code))
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Uploads a single file using Google Drive REST API v3 Multipart Upload.
     pub fn upload_file_multipart(
+        access_token: &str,
+        parent_id: &str,
+        file_name: &str,
+        file_bytes: &[u8],
+        mime_type: &str,
+    ) -> Result<String, String> {
+        let retry_config = RetryConfig::default();
+        execute_with_retry(
+            &retry_config,
+            "upload_file_multipart",
+            || {
+                Self::upload_file_multipart_inner(
+                    access_token,
+                    parent_id,
+                    file_name,
+                    file_bytes,
+                    mime_type,
+                )
+            },
+            |err| Self::is_retryable_cloud_error(err),
+        )
+    }
+
+    fn upload_file_multipart_inner(
         access_token: &str,
         parent_id: &str,
         file_name: &str,
@@ -576,6 +656,20 @@ impl GoogleDriveProvider {
 
     /// Verifies that a file uploaded to Google Drive exists and its byte size matches the local payload.
     pub fn verify_remote_file(
+        access_token: &str,
+        file_id: &str,
+        expected_size: u64,
+    ) -> Result<bool, String> {
+        let retry_config = RetryConfig::default();
+        execute_with_retry(
+            &retry_config,
+            "verify_remote_file",
+            || Self::verify_remote_file_inner(access_token, file_id, expected_size),
+            |err| Self::is_retryable_cloud_error(err),
+        )
+    }
+
+    fn verify_remote_file_inner(
         access_token: &str,
         file_id: &str,
         expected_size: u64,
@@ -660,6 +754,20 @@ impl GoogleDriveProvider {
         parent_id: &str,
         extra_query: Option<&str>,
     ) -> Result<Vec<(String, String)>, String> {
+        let retry_config = RetryConfig::default();
+        execute_with_retry(
+            &retry_config,
+            "list_children",
+            || Self::list_children_inner(access_token, parent_id, extra_query),
+            |err| Self::is_retryable_cloud_error(err),
+        )
+    }
+
+    fn list_children_inner(
+        access_token: &str,
+        parent_id: &str,
+        extra_query: Option<&str>,
+    ) -> Result<Vec<(String, String)>, String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(20))
             .build()
@@ -705,6 +813,16 @@ impl GoogleDriveProvider {
 
     /// Downloads the raw bytes of a file from Google Drive.
     pub fn download_file_bytes(access_token: &str, file_id: &str) -> Result<Vec<u8>, String> {
+        let retry_config = RetryConfig::default();
+        execute_with_retry(
+            &retry_config,
+            "download_file_bytes",
+            || Self::download_file_bytes_inner(access_token, file_id),
+            |err| Self::is_retryable_cloud_error(err),
+        )
+    }
+
+    fn download_file_bytes_inner(access_token: &str, file_id: &str) -> Result<Vec<u8>, String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -894,12 +1012,20 @@ impl CloudProvider for GoogleDriveProvider {
         let search_query =
             "name = 'Secure Backup Vault' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
 
-        let search_res = client
-            .get("https://www.googleapis.com/drive/v3/files")
-            .bearer_auth(&access_token)
-            .query(&[("q", search_query), ("fields", "files(id, name)")])
-            .send()
-            .map_err(|e| format!("Vault search request failed: {}", e))?;
+        let retry_config = RetryConfig::default();
+        let search_res = execute_with_retry(
+            &retry_config,
+            "discover_remote_snapshots_vault_search",
+            || {
+                client
+                    .get("https://www.googleapis.com/drive/v3/files")
+                    .bearer_auth(&access_token)
+                    .query(&[("q", search_query), ("fields", "files(id, name)")])
+                    .send()
+                    .map_err(|e| format!("Vault search request failed: {}", e))
+            },
+            |err| Self::is_retryable_cloud_error(err),
+        )?;
 
         #[derive(Deserialize)]
         struct FileList {
