@@ -92,16 +92,17 @@ body {
 .nav-menu {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 20px;
+  gap: 8px;
+  margin-top: 22px;
   flex: 1;
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 11px 14px;
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
@@ -109,19 +110,41 @@ body {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
   text-align: left;
+  transition: all 0.2s ease;
+}
+
+.nav-item svg {
+  flex-shrink: 0;
 }
 
 .nav-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.06);
   color: var(--text-main);
+  transform: translateX(1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .nav-item.active {
   background-color: var(--accent-soft);
   color: var(--accent-color);
   font-weight: 600;
+}
+
+.nav-item.active:hover {
+  transform: none;
+}
+
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background-color: var(--accent-color);
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.25);
 }
 
 .sidebar-footer {
@@ -208,17 +231,22 @@ body {
   background-color: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 26px;
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
+.card:hover {
+  border-color: rgba(59, 131, 246, 0.185);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
 .card-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .card-icon {
@@ -252,12 +280,17 @@ body {
   background-color: var(--bg-secondary);
   border: 1px dashed var(--card-border);
   border-radius: var(--radius-md);
-  padding: 20px;
+  padding: 22px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   align-items: center;
   text-align: center;
+}
+
+.folder-selection-box:hover {
+  border-color: rgba(59, 130, 246, 0.35);
+  background-color: rgba(18, 21, 28, 0.8);
 }
 
 .folder-empty-state {
@@ -366,7 +399,15 @@ body {
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: all 0.15s ease;
+
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.12s ease;
+}
+
+.btn svg {
+  flex-shrink: 0;
 }
 
 .btn-primary {
@@ -376,6 +417,12 @@ body {
 
 .btn-primary:hover {
   background-color: var(--accent-hover);
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.14);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.12);
 }
 
 .btn-secondary {
@@ -387,6 +434,11 @@ body {
   background-color: rgba(255, 255, 255, 0.14);
 }
 
+.btn-secondary:active {
+  background-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(1px);
+}
+
 .btn-success {
   background-color: var(--success);
   color: #fff;
@@ -394,6 +446,11 @@ body {
 
 .btn-success:hover {
   background-color: var(--success-hover);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.22);
+}
+
+.btn-success:active {
+  transform: translateY(1px);
 }
 
 .btn-large {
