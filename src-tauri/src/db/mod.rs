@@ -284,6 +284,13 @@ pub fn mark_snapshot_synced(conn: &Connection, snapshot_id: &str) -> Result<(), 
     Ok(())
 }
 
+pub fn delete_snapshot(conn: &Connection, snapshot_id: &str) -> Result<bool, String> {
+    let affected = conn
+        .execute("DELETE FROM snapshots WHERE id = ?1", params![snapshot_id])
+        .map_err(|e| format!("Failed to delete snapshot from database: {}", e))?;
+    Ok(affected > 0)
+}
+
 pub fn get_db_stats(conn: &Connection) -> Result<DbStats, String> {
     let total_snapshots: i64 = conn
         .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
