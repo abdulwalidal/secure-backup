@@ -203,6 +203,7 @@ function initializeApp() {
   const btnClearSelection = document.getElementById("btn-clear-selection") as HTMLButtonElement | null;
   const btnStartBackup = document.getElementById("btn-start-backup") as HTMLButtonElement | null;
   const backupSpinner = document.getElementById("backup-spinner") as HTMLElement | null;
+  const chkExcludeCommon = document.getElementById("chk-exclude-common") as HTMLInputElement | null;
   const folderDisplay = document.getElementById("selected-folder-display") as HTMLElement | null;
   const folderMetaCard = document.getElementById("folder-meta-card") as HTMLElement | null;
   const backupResultBanner = document.getElementById("backup-result-banner") as HTMLElement | null;
@@ -534,8 +535,10 @@ function initializeApp() {
       const folderPath = typeof selected === "string" ? selected : selected[0];
       if (!folderPath) return;
 
+      const excludeCommon = chkExcludeCommon ? chkExcludeCommon.checked : true;
       const result = await invoke<CommandResult<FolderInfo>>("inspect_folder", {
         path: folderPath,
+        excludeCommon,
       });
 
       if (result.success && result.data) {
@@ -639,9 +642,11 @@ function initializeApp() {
     if (backupResultBanner) backupResultBanner.style.display = "none";
 
     try {
+      const excludeCommon = chkExcludeCommon ? chkExcludeCommon.checked : true;
       const res = await invoke<CommandResult<BackupResult>>("start_local_backup", {
         sourcePath: currentSelectedPath,
         passphrase: passphrase || null,
+        excludeCommon,
       });
 
       if (res.success && res.data) {
@@ -1342,6 +1347,21 @@ function initializeApp() {
 
   btnSelectFolder?.addEventListener("click", handleSelectFolder);
   btnClearSelection?.addEventListener("click", handleClearSelection);
+  chkExcludeCommon?.addEventListener("change", async () => {
+    if (!currentSelectedPath) return;
+    try {
+      const excludeCommon = chkExcludeCommon.checked;
+      const result = await invoke<CommandResult<FolderInfo>>("inspect_folder", {
+        path: currentSelectedPath,
+        excludeCommon,
+      });
+      if (result.success && result.data) {
+        renderSelectedFolder(result.data);
+      }
+    } catch (err) {
+      console.error("Error refreshing folder inspection:", err);
+    }
+  });
   btnStartBackup?.addEventListener("click", handleStartBackup);
   btnRefreshHistory?.addEventListener("click", loadBackupHistory);
   btnGeneratePass?.addEventListener("click", handleGeneratePassphrase);

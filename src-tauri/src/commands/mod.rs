@@ -1,10 +1,16 @@
-use crate::backup::{create_local_backup, get_backups_size, list_local_backups};
-use crate::models::{BackupManifest, BackupResult, CommandResult, FolderInfo, StorageStats};
+use crate::backup::{
+    create_local_backup_with_options, get_backups_size, list_local_backups, DEFAULT_EXCLUDED_DIRS,
+    DEFAULT_EXCLUDED_FILES,
+};
+use crate::models::{
+    BackupManifest, BackupResult, CommandResult, FolderInfo, ScanOptions, StorageStats,
+};
 use std::fs;
 use std::path::Path;
+use walkdir::WalkDir;
 
 #[tauri::command]
-pub fn inspect_folder(path: String) -> CommandResult<FolderInfo> {
+pub fn inspect_folder(path: String, exclude_common: Option<bool>) -> CommandResult<FolderInfo> {
     let p = Path::new(&path);
     if !p.exists() {
         return CommandResult {
@@ -27,11 +33,32 @@ pub fn inspect_folder(path: String) -> CommandResult<FolderInfo> {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| path.clone());
 
+    let exclude = exclude_common.unwrap_or(true);
     let mut file_count = 0;
     let mut total_size_bytes = 0;
 
-    if let Ok(entries) = fs::read_dir(p) {
-        for entry in entries.flatten() {
+    for entry in WalkDir::new(p)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            if entry.path() == p {
+                return true;
+            }
+            let name = entry.file_name().to_string_lossy();
+            if exclude {
+                if entry.file_type().is_dir() && DEFAULT_EXCLUDED_DIRS.iter().any(|d| *d == name) {
+                    return false;
+                }
+                if entry.file_type().is_file() && DEFAULT_EXCLUDED_FILES.iter().any(|f| *f == name)
+                {
+                    return false;
+                }
+            }
+            true
+        })
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file() {
             file_count += 1;
             if let Ok(meta) = entry.metadata() {
                 total_size_bytes += meta.len();
@@ -57,9 +84,14 @@ pub fn inspect_folder(path: String) -> CommandResult<FolderInfo> {
 pub fn start_local_backup(
     source_path: String,
     passphrase: Option<String>,
+    exclude_common: Option<bool>,
 ) -> CommandResult<BackupResult> {
     let pass_ref = passphrase.as_deref();
-    match create_local_backup(&source_path, pass_ref) {
+    let scan_opts = ScanOptions {
+        exclude_common: exclude_common.unwrap_or(true),
+        custom_exclusions: Vec::new(),
+    };
+    match create_local_backup_with_options(&source_path, pass_ref, Some(&scan_opts)) {
         Ok(result) => CommandResult {
             success: true,
             data: Some(result),

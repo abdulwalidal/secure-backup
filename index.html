@@ -253,6 +253,17 @@
                   </p>
                 </div>
 
+                <!-- Scanner Exclusion Options -->
+                <div class="backup-options-group">
+                  <label class="checkbox-label" for="chk-exclude-common">
+                    <input type="checkbox" id="chk-exclude-common" checked />
+                    <span class="checkbox-text">
+                      <strong>Exclude build &amp; cache folders</strong>
+                      <span class="checkbox-hint">Skips <code>.git</code>, <code>node_modules</code>, <code>target</code>, <code>.cache</code>, <code>.venv</code>, <code>.DS_Store</code></span>
+                    </span>
+                  </label>
+                </div>
+
                 <!-- Backup Action Section -->
                 <div class="backup-action-container">
                   <button id="btn-start-backup" class="btn btn-success btn-large">
