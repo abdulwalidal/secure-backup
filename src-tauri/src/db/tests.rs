@@ -219,3 +219,30 @@ fn test_opaque_stored_filename_persistence() {
     assert_eq!(files[0].relative_path, "secret/plan.pdf");
     assert_eq!(files[0].stored_filename, opaque_uuid);
 }
+
+#[test]
+fn test_delete_snapshot_helper_cascades_and_removes_records() {
+    let mut conn = setup_test_db();
+    let manifest = sample_manifest("snap-del-helper-test", 3, false);
+
+    insert_snapshot(&mut conn, &manifest, "completed").unwrap();
+
+    let snapshots = get_snapshots(&conn).unwrap();
+    assert_eq!(snapshots.len(), 1);
+    let files = get_snapshot_files(&conn, "snap-del-helper-test").unwrap();
+    assert_eq!(files.len(), 3);
+
+    // Call delete_snapshot
+    let deleted = delete_snapshot(&conn, "snap-del-helper-test").unwrap();
+    assert!(deleted);
+
+    // Verify snapshots and files are gone
+    let snapshots_after = get_snapshots(&conn).unwrap();
+    assert_eq!(snapshots_after.len(), 0);
+    let files_after = get_snapshot_files(&conn, "snap-del-helper-test").unwrap();
+    assert_eq!(files_after.len(), 0);
+
+    // Calling again returns false
+    let deleted_again = delete_snapshot(&conn, "snap-del-helper-test").unwrap();
+    assert!(!deleted_again);
+}

@@ -90,6 +90,22 @@ pub fn get_backup_history() -> CommandResult<Vec<BackupManifest>> {
 }
 
 #[tauri::command]
+pub fn delete_backup_snapshot(snapshot_id: String) -> CommandResult<bool> {
+    match crate::backup::delete_local_backup(&snapshot_id) {
+        Ok(_) => CommandResult {
+            success: true,
+            data: Some(true),
+            error: None,
+        },
+        Err(err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Failed to delete snapshot: {}", err)),
+        },
+    }
+}
+
+#[tauri::command]
 pub fn test_encryption_roundtrip(sample_text: String, passphrase: String) -> CommandResult<String> {
     use crate::encryption::{decrypt_bytes, derive_key, encrypt_bytes, generate_salt};
 

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 interface FolderInfo {
@@ -765,6 +765,15 @@ function initializeApp() {
                 </svg>
                 Sync to Google Drive
               </button>
+              <button class="btn btn-danger btn-sm btn-delete-snapshot" data-snapshot-id="${escapeHtml(m.id)}" data-name="${escapeHtml(m.source_name)}" title="Delete Snapshot">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/>
+                  <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+                Delete
+              </button>
             </div>
           </div>
         `;
@@ -815,6 +824,48 @@ function initializeApp() {
           alert("Network or authorization error while uploading to Google Drive.");
           btn.disabled = false;
           btn.textContent = "Sync to Google Drive";
+        }
+      });
+    });
+
+    // Attach delete button handlers
+    historyContainer.querySelectorAll<HTMLButtonElement>(".btn-delete-snapshot").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const snapshotId = btn.getAttribute("data-snapshot-id");
+        const snapshotName = btn.getAttribute("data-name") || snapshotId || "this backup";
+        if (!snapshotId) return;
+
+        const confirmed = await ask(
+          `Are you sure you want to permanently delete backup snapshot '${snapshotName}' (${snapshotId})?\n\nThis will remove all local encrypted archive files and cannot be undone.`,
+          {
+            title: "Delete Backup Snapshot",
+            kind: "warning",
+          }
+        );
+
+        if (!confirmed) return;
+
+        btn.disabled = true;
+        btn.textContent = "Deleting...";
+
+        try {
+          const res = await invoke<CommandResult<boolean>>("delete_backup_snapshot", {
+            snapshotId,
+          });
+
+          if (res.success) {
+            await loadBackupHistory();
+            loadStorageStats();
+          } else {
+            alert(res.error || "Failed to delete snapshot.");
+            btn.disabled = false;
+            btn.textContent = "Delete";
+          }
+        } catch (err) {
+          console.error("Delete snapshot error:", err);
+          alert("An unexpected error occurred while deleting the snapshot.");
+          btn.disabled = false;
+          btn.textContent = "Delete";
         }
       });
     });

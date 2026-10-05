@@ -302,6 +302,50 @@ fn get_manifest_from_db(
     Ok(BackupManifest { files, ..manifest })
 }
 
+/// Safely deletes a local backup snapshot:
+/// 1. Validates the backup ID against path traversal patterns.
+/// 2. Deletes the snapshot directory from disk (~/.local/share/secure-backup/backups/<backup_id>).
+/// 3. Cascades deletion in SQLite to remove snapshots and snapshot_files records.
+pub fn delete_local_backup(backup_id: &str) -> io::Result<bool> {
+    if backup_id.is_empty()
+        || backup_id.contains("..")
+        || backup_id.contains('/')
+        || backup_id.contains('\\')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Invalid backup ID format: Path traversal characters are not permitted.",
+        ));
+    }
+
+    let backups_base = get_backups_dir();
+    let snapshot_dir = backups_base.join(backup_id);
+
+    let existed_on_disk = snapshot_dir.exists() && snapshot_dir.is_dir();
+    if existed_on_disk {
+        fs::remove_dir_all(&snapshot_dir)?;
+    }
+
+    let mut deleted_from_db = false;
+    if let Ok(conn) = crate::db::get_connection() {
+        if let Ok(did_del) = crate::db::delete_snapshot(&conn, backup_id) {
+            deleted_from_db = did_del;
+        }
+    }
+
+    if !existed_on_disk && !deleted_from_db {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "Snapshot '{}' was not found on disk or in the database.",
+                backup_id
+            ),
+        ));
+    }
+
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests;
 

@@ -453,6 +453,23 @@ body {
   transform: translateY(1px);
 }
 
+.btn-danger {
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.btn-danger:hover {
+  background-color: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+}
+
+.btn-danger:active {
+  transform: translateY(1px);
+}
+
 .btn-large {
   padding: 12px 24px;
   font-size: 14px;

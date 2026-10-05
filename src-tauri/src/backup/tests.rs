@@ -473,3 +473,62 @@ fn test_legacy_manifest_deserialization_backward_compatibility() {
     assert_eq!(manifest.files[0].stored_filename, None);
     assert_eq!(manifest.files[0].relative_path, "tax.pdf");
 }
+
+#[test]
+fn test_delete_local_backup_removes_directory_and_files() {
+    use crate::backup::delete_local_backup;
+
+    let test_dir = std::env::temp_dir().join("sb_delete_backup_test_source");
+    let _ = fs::remove_dir_all(&test_dir);
+    fs::create_dir_all(&test_dir).unwrap();
+    fs::write(test_dir.join("sample.txt"), b"sample data for deletion").unwrap();
+
+    let backup_res = create_local_backup(&test_dir, Some("delete_pw_123")).unwrap();
+    let backup_dir = std::path::PathBuf::from(&backup_res.target_directory);
+
+    assert!(
+        backup_dir.exists(),
+        "Target backup dir must exist before deletion"
+    );
+    assert!(backup_dir.join("manifest.json.enc").exists());
+
+    // Execute deletion
+    let deleted = delete_local_backup(&backup_res.backup_id).unwrap();
+    assert!(deleted, "delete_local_backup must return true on success");
+    assert!(
+        !backup_dir.exists(),
+        "Target backup dir must be completely removed from disk"
+    );
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_delete_local_backup_path_traversal_rejection() {
+    use crate::backup::delete_local_backup;
+
+    let res1 = delete_local_backup("../malicious");
+    assert!(res1.is_err());
+    assert_eq!(res1.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+
+    let res2 = delete_local_backup("folder/subfolder");
+    assert!(res2.is_err());
+    assert_eq!(res2.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+
+    let res3 = delete_local_backup("folder\\subfolder");
+    assert!(res3.is_err());
+    assert_eq!(res3.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+
+    let res4 = delete_local_backup("");
+    assert!(res4.is_err());
+    assert_eq!(res4.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn test_delete_local_backup_nonexistent_returns_not_found() {
+    use crate::backup::delete_local_backup;
+
+    let res = delete_local_backup("nonexistent_backup_id_99999999");
+    assert!(res.is_err());
+    assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+}
