@@ -1006,3 +1006,121 @@ fn test_opaque_end_to_end_restore_with_deep_hierarchy_and_duplicate_names() {
     let _ = fs::remove_dir_all(&dest_dir);
     let _ = fs::remove_dir_all(&backup_res.target_directory);
 }
+
+#[test]
+fn test_verify_snapshot_passphrase_success_and_wrong_passphrase() {
+    let tmp_src = create_temp_dest_dir("test_verify_pw_src");
+    let file1 = tmp_src.join("sample.txt");
+    let content = b"Secret data to be verified";
+    fs::write(&file1, content).unwrap();
+
+    let pw = "my-secret-passphrase-2026";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    // 1. Correct passphrase should succeed with SHA-256 match
+    let verify_res = verify_local_snapshot_passphrase(&backup_res.backup_id, pw).unwrap();
+    assert!(verify_res.success);
+    assert_eq!(verify_res.snapshot_id, backup_res.backup_id);
+    assert_eq!(verify_res.total_files, 1);
+    assert!(verify_res.sha256_matched);
+    assert_eq!(verify_res.verified_file.as_deref(), Some("sample.txt"));
+    assert!(verify_res.message.contains("SHA-256 integrity match"));
+
+    // 2. Wrong passphrase should fail authentication
+    let wrong_res = verify_local_snapshot_passphrase(&backup_res.backup_id, "incorrect-passphrase");
+    assert!(wrong_res.is_err());
+    let err_msg = wrong_res.unwrap_err();
+    assert!(err_msg.contains("Authentication failed"));
+
+    // 3. Empty passphrase should be rejected immediately
+    let empty_res = verify_local_snapshot_passphrase(&backup_res.backup_id, "");
+    assert!(empty_res.is_err());
+    assert!(empty_res
+        .unwrap_err()
+        .contains("Passphrase cannot be empty"));
+
+    // 4. Path traversal in snapshot ID should be rejected
+    assert!(verify_local_snapshot_passphrase("../evil", pw).is_err());
+    assert!(verify_local_snapshot_passphrase("foo/bar", pw).is_err());
+    assert!(verify_local_snapshot_passphrase("foo\\bar", pw).is_err());
+
+    // 5. Non-existent snapshot ID should return not found
+    let not_found_res = verify_local_snapshot_passphrase("non-existent-id-9999", pw);
+    assert!(not_found_res.is_err());
+    assert!(not_found_res.unwrap_err().contains("not found"));
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
+
+#[test]
+fn test_verify_snapshot_passphrase_corrupted_manifest() {
+    let tmp_src = create_temp_dest_dir("test_corrupt_manifest_src");
+    let file1 = tmp_src.join("data.bin");
+    fs::write(&file1, b"Payload bytes").unwrap();
+
+    let pw = "corrupt-check-passphrase";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    // Corrupt manifest ciphertext
+    let enc_manifest = Path::new(&backup_res.target_directory).join("manifest.json.enc");
+    let mut bytes = fs::read(&enc_manifest).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xFF;
+    fs::write(&enc_manifest, bytes).unwrap();
+
+    let res = verify_local_snapshot_passphrase(&backup_res.backup_id, pw);
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Authentication failed"));
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
+
+#[test]
+fn test_verify_snapshot_passphrase_empty_folder_snapshot() {
+    let tmp_src = create_temp_dest_dir("test_empty_verify_src");
+    let pw = "empty-snapshot-pw";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    let verify_res = verify_local_snapshot_passphrase(&backup_res.backup_id, pw).unwrap();
+    assert!(verify_res.success);
+    assert_eq!(verify_res.total_files, 0);
+    assert!(!verify_res.sha256_matched);
+    assert_eq!(verify_res.verified_file, None);
+    assert!(verify_res.message.contains("AES-256-GCM AEAD tag matched"));
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}
+
+#[test]
+fn test_verify_snapshot_passphrase_tampered_file_payload() {
+    let tmp_src = create_temp_dest_dir("test_tampered_file_src");
+    let file1 = tmp_src.join("confidential.docx");
+    fs::write(&file1, b"Confidential document content").unwrap();
+
+    let pw = "tampered-file-pw";
+    let backup_res = crate::backup::create_local_backup(&tmp_src, Some(pw)).unwrap();
+
+    // Find the stored encrypted file in data directory and tamper with its ciphertext
+    let data_dir = Path::new(&backup_res.target_directory).join("data");
+    for entry in fs::read_dir(&data_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|s| s.to_str()) == Some("enc") {
+            let mut bytes = fs::read(&path).unwrap();
+            let last = bytes.len() - 1;
+            bytes[last] ^= 0xFF; // corrupt tag
+            fs::write(&path, bytes).unwrap();
+            break;
+        }
+    }
+
+    let res = verify_local_snapshot_passphrase(&backup_res.backup_id, pw);
+    assert!(res.is_err());
+    let err = res.unwrap_err();
+    assert!(err.contains("Archive file decryption failed") || err.contains("invalid passphrase"));
+
+    let _ = fs::remove_dir_all(&tmp_src);
+    let _ = fs::remove_dir_all(&backup_res.target_directory);
+}

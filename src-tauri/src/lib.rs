@@ -12,7 +12,7 @@ use commands::{
     discover_cloud_snapshots, get_backup_history, get_cloud_providers, get_database_snapshot_files,
     get_database_snapshots, get_database_stats, get_storage_stats, inspect_folder,
     rebuild_database_from_cloud, restore_snapshot, start_local_backup, sync_snapshot_to_cloud,
-    test_encryption_roundtrip,
+    test_encryption_roundtrip, verify_snapshot_passphrase,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,7 +49,8 @@ pub fn run() {
             sync_snapshot_to_cloud,
             discover_cloud_snapshots,
             rebuild_database_from_cloud,
-            restore_snapshot
+            restore_snapshot,
+            verify_snapshot_passphrase
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
