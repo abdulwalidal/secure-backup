@@ -95,3 +95,15 @@ pub struct StorageStats {
     pub free_space_bytes: u64,
     pub used_space_bytes: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PassphraseVerificationResult {
+    pub success: bool,
+    pub snapshot_id: String,
+    pub source_name: String,
+    pub total_files: usize,
+    pub total_size_bytes: u64,
+    pub verified_file: Option<String>,
+    pub sha256_matched: bool,
+    pub message: String,
+}

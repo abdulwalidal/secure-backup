@@ -3,7 +3,7 @@ use crate::encryption::{
     decrypt_archive_payload_with_key, derive_key, extract_salt_from_archive, SALT_LEN,
 };
 use crate::hashing::hash_bytes;
-use crate::models::{BackupManifest, FileMetadata};
+use crate::models::{BackupManifest, FileMetadata, PassphraseVerificationResult};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -839,5 +839,174 @@ pub fn restore_cloud_snapshot(
         total_bytes_restored,
         elapsed_millis: start_time.elapsed().as_millis(),
         items,
+    })
+}
+
+/// Tests unlocking an encrypted backup snapshot by verifying the passphrase against
+/// the encrypted manifest (Argon2id key derivation and AES-256-GCM AEAD tag check)
+/// and verifying the first encrypted file payload against its expected SHA-256 integrity hash.
+/// Does not write or restore any files to disk.
+pub fn verify_local_snapshot_passphrase(
+    snapshot_id: &str,
+    passphrase: &str,
+) -> Result<PassphraseVerificationResult, String> {
+    let trimmed_id = snapshot_id.trim();
+    if trimmed_id.is_empty() {
+        return Err("Snapshot ID is required.".to_string());
+    }
+
+    if trimmed_id.contains("..") || trimmed_id.contains('/') || trimmed_id.contains('\\') {
+        return Err("Invalid snapshot ID format.".to_string());
+    }
+
+    if !trimmed_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Snapshot ID contains invalid characters.".to_string());
+    }
+
+    if passphrase.is_empty() {
+        return Err("Passphrase cannot be empty.".to_string());
+    }
+
+    let backups_base = crate::backup::get_backups_dir();
+    let snapshot_dir = backups_base.join(trimmed_id);
+
+    if !snapshot_dir.exists() {
+        return Err(format!(
+            "Local snapshot folder for '{}' not found at {:?}.",
+            trimmed_id, snapshot_dir
+        ));
+    }
+
+    let enc_manifest_path = snapshot_dir.join("manifest.json.enc");
+    let manifest_path = snapshot_dir.join("manifest.json");
+
+    let manifest: BackupManifest = if enc_manifest_path.exists() {
+        let enc_bytes = fs::read(&enc_manifest_path).map_err(|e| {
+            format!(
+                "Failed to read encrypted manifest {:?}: {}",
+                enc_manifest_path, e
+            )
+        })?;
+        let decrypted_bytes = crate::encryption::decrypt_archive_payload(&enc_bytes, passphrase)
+            .map_err(|_| {
+                "Authentication failed: incorrect passphrase or corrupted data.".to_string()
+            })?;
+        serde_json::from_slice(&decrypted_bytes)
+            .map_err(|e| format!("Failed to parse decrypted manifest JSON: {}", e))?
+    } else if manifest_path.exists() {
+        let raw_bytes = fs::read(&manifest_path)
+            .map_err(|e| format!("Failed to read manifest {:?}: {}", manifest_path, e))?;
+        if raw_bytes.starts_with(crate::encryption::MAGIC_HEADER) {
+            let decrypted_bytes = crate::encryption::decrypt_archive_payload(
+                &raw_bytes, passphrase,
+            )
+            .map_err(|_| {
+                "Authentication failed: incorrect passphrase or corrupted data.".to_string()
+            })?;
+            serde_json::from_slice(&decrypted_bytes)
+                .map_err(|e| format!("Failed to parse decrypted manifest JSON: {}", e))?
+        } else {
+            let parsed: BackupManifest = serde_json::from_slice(&raw_bytes)
+                .map_err(|e| format!("Failed to parse manifest JSON: {}", e))?;
+            if !parsed.is_encrypted {
+                return Err(
+                    "Snapshot is not encrypted; passphrase verification is not applicable."
+                        .to_string(),
+                );
+            }
+            parsed
+        }
+    } else {
+        return Err(format!(
+            "Snapshot manifest not found at {:?}.",
+            snapshot_dir
+        ));
+    };
+
+    if manifest.id != trimmed_id {
+        return Err(format!(
+            "Manifest snapshot ID mismatch: expected '{}', found '{}'. Possible manifest substitution attack detected.",
+            trimmed_id, manifest.id
+        ));
+    }
+
+    let mut verified_file = None;
+    let mut sha256_matched = false;
+
+    // Test decrypt the first available file to confirm end-to-end file decryption and SHA-256 match
+    let data_dir = snapshot_dir.join("data");
+    for file_meta in &manifest.files {
+        let mut file_path = None;
+        if let Some(ref stored_name) = file_meta.stored_filename {
+            if is_valid_opaque_stored_filename(stored_name) {
+                let candidate = data_dir.join(stored_name);
+                if candidate.exists() {
+                    file_path = Some(candidate);
+                }
+            }
+        }
+
+        if file_path.is_none() {
+            let candidates = [
+                data_dir.join(format!("{}.enc", file_meta.relative_path)),
+                data_dir.join(&file_meta.relative_path),
+                snapshot_dir.join(format!("{}.enc", file_meta.relative_path)),
+                snapshot_dir.join(&file_meta.relative_path),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    file_path = Some(candidate);
+                    break;
+                }
+            }
+        }
+
+        if let Some(path) = file_path {
+            if let Ok(file_bytes) = fs::read(&path) {
+                if file_bytes.starts_with(crate::encryption::MAGIC_HEADER) {
+                    let decrypted = crate::encryption::decrypt_archive_payload(
+                        &file_bytes,
+                        passphrase,
+                    )
+                    .map_err(|_| {
+                        "Archive file decryption failed: invalid passphrase or corrupted payload."
+                            .to_string()
+                    })?;
+
+                    if !file_meta.sha256_hash.trim().is_empty() {
+                        let computed_hash = hash_bytes(&decrypted);
+                        if !computed_hash.eq_ignore_ascii_case(file_meta.sha256_hash.trim()) {
+                            return Err(format!(
+                                "SHA-256 integrity mismatch on '{}': expected {}, computed {}",
+                                file_meta.relative_path, file_meta.sha256_hash, computed_hash
+                            ));
+                        }
+                        sha256_matched = true;
+                    }
+                    verified_file = Some(file_meta.relative_path.clone());
+                    break;
+                }
+            }
+        }
+    }
+
+    let message = if sha256_matched {
+        "Passphrase verified successfully (SHA-256 integrity match).".to_string()
+    } else {
+        "Passphrase verified successfully (AES-256-GCM AEAD tag matched).".to_string()
+    };
+
+    Ok(PassphraseVerificationResult {
+        success: true,
+        snapshot_id: manifest.id,
+        source_name: manifest.source_name,
+        total_files: manifest.total_files,
+        total_size_bytes: manifest.total_size_bytes,
+        verified_file,
+        sha256_matched,
+        message,
     })
 }

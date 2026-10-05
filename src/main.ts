@@ -46,6 +46,17 @@ interface CommandResult<T> {
   error?: string;
 }
 
+interface PassphraseVerificationResult {
+  success: boolean;
+  snapshot_id: string;
+  source_name: string;
+  total_files: number;
+  total_size_bytes: number;
+  verified_file?: string;
+  sha256_matched: boolean;
+  message: string;
+}
+
 interface StorageStats {
   backup_path: string;
   free_space_bytes: number;
@@ -731,6 +742,18 @@ function initializeApp() {
             ? `<div style="color: var(--text-dim); font-size: 10px;">+ ${m.files.length - 5} more files</div>`
             : "";
 
+        const testUnlockBtn = m.is_encrypted
+          ? `
+              <button class="btn btn-secondary btn-sm btn-verify-snapshot" data-snapshot-id="${escapeHtml(m.id)}" data-name="${escapeHtml(m.source_name)}" data-path="${escapeHtml(m.source_path)}" data-files="${m.total_files}" data-size="${m.total_size_bytes}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Test Unlock
+              </button>
+            `
+          : "";
+
         return `
           <div class="history-card">
             <div class="history-card-header">
@@ -751,6 +774,7 @@ function initializeApp() {
               ${moreFilesCount}
             </div>
             <div class="history-card-footer" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+              ${testUnlockBtn}
               <button class="btn btn-primary btn-sm btn-restore-snapshot" data-snapshot-id="${escapeHtml(m.id)}" data-source="local" data-name="${escapeHtml(m.source_name)}" data-path="${escapeHtml(m.source_path)}" data-files="${m.total_files}" data-size="${m.total_size_bytes}" data-encrypted="${m.is_encrypted}">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
                   <polyline points="7 10 12 15 17 10"/>
@@ -770,6 +794,18 @@ function initializeApp() {
         `;
       })
       .join("");
+
+    // Attach test unlock button handlers
+    historyContainer.querySelectorAll<HTMLButtonElement>(".btn-verify-snapshot").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-snapshot-id") || "";
+        const name = btn.getAttribute("data-name") || "Backup";
+        const path = btn.getAttribute("data-path") || "";
+        const files = parseInt(btn.getAttribute("data-files") || "0", 10);
+        const size = parseInt(btn.getAttribute("data-size") || "0", 10);
+        openVerifyModal(id, name, path, files, size);
+      });
+    });
 
     // Attach restore button handlers
     historyContainer.querySelectorAll<HTMLButtonElement>(".btn-restore-snapshot").forEach((btn) => {
@@ -1337,6 +1373,161 @@ function initializeApp() {
           <span>Done</span>
         `;
       }
+    }
+  });
+
+  // Verify / Test Unlock Modal Handling
+  const verifyModal = document.getElementById("verify-modal");
+  const btnCloseVerifyModal = document.getElementById("btn-close-verify-modal");
+  const btnCancelVerify = document.getElementById("btn-cancel-verify");
+  const btnExecuteVerify = document.getElementById("btn-execute-verify") as HTMLButtonElement | null;
+  const btnExecuteVerifyText = document.getElementById("btn-execute-verify-text");
+  const verifyModalSnapshotId = document.getElementById("verify-modal-snapshot-id");
+  const verifyModalSnapshotSource = document.getElementById("verify-modal-snapshot-source");
+  const verifyModalSnapshotFiles = document.getElementById("verify-modal-snapshot-files");
+  const verifyModalSnapshotSize = document.getElementById("verify-modal-snapshot-size");
+  const verifyPassphraseInput = document.getElementById("verify-passphrase") as HTMLInputElement | null;
+  const btnToggleVerifyPass = document.getElementById("btn-toggle-verify-pass");
+  const verifyResultContainer = document.getElementById("verify-result-container");
+
+  let activeVerifySnapshotId: string | null = null;
+
+  function openVerifyModal(
+    snapshotId: string,
+    name: string,
+    path: string,
+    files: number,
+    size: number
+  ) {
+    activeVerifySnapshotId = snapshotId;
+    if (verifyModalSnapshotId) verifyModalSnapshotId.textContent = snapshotId;
+    if (verifyModalSnapshotSource) verifyModalSnapshotSource.textContent = `${name} (${path || "Snapshot"})`;
+    if (verifyModalSnapshotFiles) verifyModalSnapshotFiles.textContent = `${files} file(s)`;
+    if (verifyModalSnapshotSize) verifyModalSnapshotSize.textContent = formatBytes(size);
+
+    if (verifyPassphraseInput) {
+      verifyPassphraseInput.value = "";
+      verifyPassphraseInput.type = "password";
+    }
+    if (btnToggleVerifyPass) {
+      btnToggleVerifyPass.innerHTML = EYE_OPEN_SVG;
+    }
+
+    if (verifyResultContainer) {
+      verifyResultContainer.style.display = "none";
+      verifyResultContainer.innerHTML = "";
+    }
+
+    if (btnExecuteVerify) {
+      btnExecuteVerify.disabled = false;
+    }
+    if (btnExecuteVerifyText) {
+      btnExecuteVerifyText.textContent = "Verify Passphrase";
+    }
+
+    if (verifyModal) {
+      verifyModal.style.display = "flex";
+      setTimeout(() => verifyPassphraseInput?.focus(), 50);
+    }
+  }
+
+  function closeVerifyModal() {
+    if (verifyModal) verifyModal.style.display = "none";
+    activeVerifySnapshotId = null;
+  }
+
+  btnCloseVerifyModal?.addEventListener("click", closeVerifyModal);
+  btnCancelVerify?.addEventListener("click", closeVerifyModal);
+
+  btnToggleVerifyPass?.addEventListener("click", () => {
+    if (!verifyPassphraseInput) return;
+    const isPass = verifyPassphraseInput.type === "password";
+    verifyPassphraseInput.type = isPass ? "text" : "password";
+    btnToggleVerifyPass.innerHTML = isPass ? EYE_OFF_SVG : EYE_OPEN_SVG;
+  });
+
+  async function handleVerifyPassphrase() {
+    if (!activeVerifySnapshotId) {
+      alert("No snapshot selected.");
+      return;
+    }
+
+    const passphrase = verifyPassphraseInput?.value || "";
+    if (!passphrase) {
+      if (verifyResultContainer) {
+        verifyResultContainer.style.display = "block";
+        verifyResultContainer.innerHTML = `
+          <div class="restore-result-box error">
+            <strong>Verification Error:</strong> Passphrase cannot be empty.
+          </div>
+        `;
+      }
+      return;
+    }
+
+    if (btnExecuteVerify) btnExecuteVerify.disabled = true;
+    if (btnExecuteVerifyText) btnExecuteVerifyText.textContent = "Testing Unlock...";
+    if (verifyResultContainer) {
+      verifyResultContainer.style.display = "block";
+      verifyResultContainer.innerHTML = `
+        <div class="restore-result-box" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); color: #93c5fd;">
+          Deriving key via Argon2id and authenticating AES-256-GCM AEAD tag...
+        </div>
+      `;
+    }
+
+    try {
+      const res = await invoke<CommandResult<PassphraseVerificationResult>>("verify_snapshot_passphrase", {
+        snapshotId: activeVerifySnapshotId,
+        passphrase,
+      });
+
+      if (res.success && res.data) {
+        const data = res.data;
+        const verifiedDetail = data.verified_file
+          ? `<div style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">Verified payload: <span class="mono" style="color: var(--text-main);">${escapeHtml(data.verified_file)}</span> (SHA-256 integrity match)</div>`
+          : "";
+
+        if (verifyResultContainer) {
+          verifyResultContainer.style.display = "block";
+          verifyResultContainer.innerHTML = `
+            <div class="restore-result-box success">
+              <strong>${escapeHtml(data.message)}</strong>
+              ${verifiedDetail}
+            </div>
+          `;
+        }
+      } else {
+        if (verifyResultContainer) {
+          verifyResultContainer.style.display = "block";
+          verifyResultContainer.innerHTML = `
+            <div class="restore-result-box error">
+              <strong>Authentication failed:</strong> ${escapeHtml(res.error || "Incorrect passphrase or corrupted snapshot data.")}
+            </div>
+          `;
+        }
+      }
+    } catch (err) {
+      console.error("Passphrase verification failed:", err);
+      if (verifyResultContainer) {
+        verifyResultContainer.style.display = "block";
+        verifyResultContainer.innerHTML = `
+          <div class="restore-result-box error">
+            <strong>Verification error:</strong> ${escapeHtml(String(err))}
+          </div>
+        `;
+      }
+    } finally {
+      if (btnExecuteVerify) btnExecuteVerify.disabled = false;
+      if (btnExecuteVerifyText) btnExecuteVerifyText.textContent = "Verify Passphrase";
+    }
+  }
+
+  btnExecuteVerify?.addEventListener("click", handleVerifyPassphrase);
+  verifyPassphraseInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleVerifyPassphrase();
     }
   });
 

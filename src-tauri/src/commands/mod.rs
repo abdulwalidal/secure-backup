@@ -595,3 +595,33 @@ pub fn get_storage_stats() -> CommandResult<StorageStats> {
         error: None,
     }
 }
+
+#[tauri::command]
+pub async fn verify_snapshot_passphrase(
+    snapshot_id: String,
+    passphrase: String,
+) -> CommandResult<crate::models::PassphraseVerificationResult> {
+    use crate::restore::verify_local_snapshot_passphrase;
+
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        verify_local_snapshot_passphrase(&snapshot_id, &passphrase)
+    });
+
+    match join_handle.await {
+        Ok(Ok(res)) => CommandResult {
+            success: true,
+            data: Some(res),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Async task failed: {}", join_err)),
+        },
+    }
+}
