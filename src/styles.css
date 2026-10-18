@@ -805,10 +805,46 @@ body {
 
 .banner-details div {
   color: var(--text-muted);
+  word-break: break-word;
 }
 
 .banner-details span {
   color: var(--text-main);
+}
+
+.btn-copy-result {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px 5px;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  line-height: 1;
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+}
+
+.btn-copy-result:hover {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.btn-copy-result:active {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.14);
+  transform: scale(0.92);
+}
+
+.btn-copy-result.copied {
+  color: var(--success);
+}
+
+.btn-copy-result svg {
+  display: block;
 }
 
 .mono {

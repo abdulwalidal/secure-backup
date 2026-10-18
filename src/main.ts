@@ -237,6 +237,8 @@ function initializeApp() {
   const resultFiles = document.getElementById("result-files") as HTMLElement | null;
   const resultSize = document.getElementById("result-size") as HTMLElement | null;
   const resultLocation = document.getElementById("result-location") as HTMLElement | null;
+  const btnCopyResultId = document.getElementById("btn-copy-result-id") as HTMLButtonElement | null;
+  const btnCopyResultLocation = document.getElementById("btn-copy-result-location") as HTMLButtonElement | null;
 
   const historyContainer = document.getElementById("history-container") as HTMLElement | null;
   const btnRefreshHistory = document.getElementById("btn-refresh-history") as HTMLButtonElement | null;
@@ -520,6 +522,50 @@ function initializeApp() {
     }
     const copied = await copyToClipboard(value);
     showCopyTooltip(copied ? "Copied!" : "Copy failed", !copied);
+  }
+
+  const COPY_ICON_SVG =
+    '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>' +
+    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' +
+    '</svg>';
+
+  const CHECK_ICON_SVG =
+    '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<polyline points="20 6 9 17 4 12"/>' +
+    '</svg>';
+
+  function setupResultCopyButton(
+    btn: HTMLButtonElement | null,
+    target: HTMLElement | null
+  ) {
+    if (!btn) return;
+    let timer: number | null = null;
+
+    btn.addEventListener("click", async () => {
+      const text = target?.textContent?.trim() ?? "";
+      if (!text || text === "-") {
+        return;
+      }
+      const copied = await copyToClipboard(text);
+      if (copied) {
+        if (timer !== null) {
+          window.clearTimeout(timer);
+        }
+        btn.innerHTML = CHECK_ICON_SVG;
+        btn.classList.add("copied");
+        const prevTitle = btn.getAttribute("title");
+        btn.setAttribute("title", "Copied!");
+        timer = window.setTimeout(() => {
+          btn.innerHTML = COPY_ICON_SVG;
+          btn.classList.remove("copied");
+          if (prevTitle !== null) {
+            btn.setAttribute("title", prevTitle);
+          }
+          timer = null;
+        }, 1500);
+      }
+    });
   }
 
   async function handleSelectFolder() {
@@ -1419,6 +1465,9 @@ function initializeApp() {
   btnCopyPass?.addEventListener("click", handleCopyPassphrase);
   btnScanCloud?.addEventListener("click", scanCloudSnapshots);
   btnRebuildCatalog?.addEventListener("click", handleRebuildCatalog);
+
+  setupResultCopyButton(btnCopyResultId, resultId);
+  setupResultCopyButton(btnCopyResultLocation, resultLocation);
 }
 
 if (document.readyState === "loading") {
