@@ -1,4 +1,6 @@
-use super::gdrive::{generate_pkce, GoogleDriveProvider};
+use super::gdrive::{
+    generate_oauth_state, generate_pkce, validate_oauth_state, GoogleDriveProvider,
+};
 use super::*;
 use crate::db::{init_db, set_setting};
 use rusqlite::Connection;
@@ -85,10 +87,12 @@ fn test_all_provider_statuses() {
 #[test]
 fn test_auth_url_construction() {
     let pkce = generate_pkce();
+    let state = generate_oauth_state();
     let url = GoogleDriveProvider::build_auth_url(
         "mock-client-id.apps.googleusercontent.com",
         "http://127.0.0.1:8080",
         &pkce,
+        &state,
     )
     .expect("build_auth_url should succeed");
 
@@ -96,6 +100,7 @@ fn test_auth_url_construction() {
     assert!(url.contains("client_id=mock-client-id"));
     assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A8080"));
     assert!(url.contains("code_challenge_method=S256"));
+    assert!(url.contains(&format!("state={}", state)));
 }
 
 #[test]
@@ -507,4 +512,145 @@ fn test_execute_with_retry_exhausts_attempts() {
 
     assert!(res.is_err());
     assert_eq!(attempts, 3);
+}
+
+#[test]
+fn test_oauth_state_generation() {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use std::collections::HashSet;
+
+    let mut generated_states = HashSet::new();
+
+    for _ in 0..50 {
+        let state = generate_oauth_state();
+
+        // High entropy: states should not collide
+        assert!(
+            generated_states.insert(state.clone()),
+            "Duplicate state generated"
+        );
+
+        // 32 bytes encoded in URL-safe unpadded base64 produces 43 characters
+        assert_eq!(state.len(), 43);
+
+        // Verify valid base64url characters without padding
+        assert!(!state.contains('='));
+        assert!(state
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+
+        // Verify that decoding yields exactly 32 bytes
+        let decoded = URL_SAFE_NO_PAD
+            .decode(&state)
+            .expect("State must be valid base64url");
+        assert_eq!(decoded.len(), 32);
+    }
+}
+
+#[test]
+fn test_build_auth_url_state_parameter() {
+    let pkce = generate_pkce();
+    let state = generate_oauth_state();
+    let url_str = GoogleDriveProvider::build_auth_url(
+        "test-client-id",
+        "http://127.0.0.1:9090",
+        &pkce,
+        &state,
+    )
+    .expect("Failed to build auth url");
+
+    let parsed = url::Url::parse(&url_str).expect("Valid url");
+    let mut found_state = None;
+    for (k, v) in parsed.query_pairs() {
+        if k == "state" {
+            found_state = Some(v.to_string());
+        }
+    }
+    assert_eq!(found_state, Some(state));
+}
+
+#[test]
+fn test_oauth_state_validation() {
+    let state = generate_oauth_state();
+
+    // 1. Valid state succeeds
+    assert_eq!(validate_oauth_state(Some(&state), &state), Ok(()));
+
+    // 2. Missing state is rejected
+    let missing_err = validate_oauth_state(None, &state).unwrap_err();
+    assert_eq!(
+        missing_err,
+        "OAuth callback is missing the required state parameter (possible CSRF attack)."
+    );
+
+    // 3. Mismatched state is rejected
+    let mismatched_err =
+        validate_oauth_state(Some("attacker-controlled-state"), &state).unwrap_err();
+    assert_eq!(
+        mismatched_err,
+        "OAuth callback state mismatch (possible CSRF or forgery attempt)."
+    );
+
+    // 4. Replayed or stale state cannot match a freshly generated state
+    let stale_state = generate_oauth_state();
+    let fresh_state = generate_oauth_state();
+    assert_ne!(stale_state, fresh_state);
+    let stale_err = validate_oauth_state(Some(&stale_state), &fresh_state).unwrap_err();
+    assert_eq!(
+        stale_err,
+        "OAuth callback state mismatch (possible CSRF or forgery attempt)."
+    );
+}
+
+#[test]
+fn test_simulated_callback_flow() {
+    let expected_state = generate_oauth_state();
+
+    // Simulated callback query with matching state
+    let valid_callback = format!(
+        "http://localhost:8080/?code=auth_code_123&state={}",
+        expected_state
+    );
+    let parsed_valid = url::Url::parse(&valid_callback).unwrap();
+    let mut code = None;
+    let mut state = None;
+    for (k, v) in parsed_valid.query_pairs() {
+        if k == "code" {
+            code = Some(v.to_string());
+        } else if k == "state" {
+            state = Some(v.to_string());
+        }
+    }
+    assert_eq!(code.as_deref(), Some("auth_code_123"));
+    assert!(validate_oauth_state(state.as_deref(), &expected_state).is_ok());
+
+    // Simulated callback query without state
+    let missing_state_callback = "http://localhost:8080/?code=auth_code_123";
+    let parsed_missing = url::Url::parse(missing_state_callback).unwrap();
+    let mut state = None;
+    for (k, v) in parsed_missing.query_pairs() {
+        if k == "state" {
+            state = Some(v.to_string());
+        }
+    }
+    let missing_res = validate_oauth_state(state.as_deref(), &expected_state);
+    assert_eq!(
+        missing_res.unwrap_err(),
+        "OAuth callback is missing the required state parameter (possible CSRF attack)."
+    );
+
+    // Simulated callback query with forged state
+    let forged_callback = "http://localhost:8080/?code=auth_code_123&state=forged_state";
+    let parsed_forged = url::Url::parse(forged_callback).unwrap();
+    let mut state = None;
+    for (k, v) in parsed_forged.query_pairs() {
+        if k == "state" {
+            state = Some(v.to_string());
+        }
+    }
+    let forged_res = validate_oauth_state(state.as_deref(), &expected_state);
+    assert_eq!(
+        forged_res.unwrap_err(),
+        "OAuth callback state mismatch (possible CSRF or forgery attempt)."
+    );
 }

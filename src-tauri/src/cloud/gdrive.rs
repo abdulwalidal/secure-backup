@@ -67,6 +67,28 @@ pub fn generate_pkce() -> PkcePair {
     }
 }
 
+pub fn generate_oauth_state() -> String {
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+pub fn validate_oauth_state(
+    callback_state: Option<&str>,
+    expected_state: &str,
+) -> Result<(), String> {
+    match callback_state {
+        None => Err(
+            "OAuth callback is missing the required state parameter (possible CSRF attack)."
+                .to_string(),
+        ),
+        Some(actual) if actual != expected_state => {
+            Err("OAuth callback state mismatch (possible CSRF or forgery attempt).".to_string())
+        }
+        Some(_) => Ok(()),
+    }
+}
+
 impl GoogleDriveProvider {
     pub fn get_client_id(conn: &Connection) -> String {
         get_setting(conn, GDRIVE_SETTING_CLIENT_ID)
@@ -87,6 +109,7 @@ impl GoogleDriveProvider {
         client_id: &str,
         redirect_uri: &str,
         pkce: &PkcePair,
+        state: &str,
     ) -> Result<String, String> {
         let mut url = Url::parse(GOOGLE_AUTH_ENDPOINT)
             .map_err(|e| format!("Invalid auth endpoint URL: {}", e))?;
@@ -98,6 +121,7 @@ impl GoogleDriveProvider {
             .append_pair("scope", GOOGLE_DRIVE_SCOPE)
             .append_pair("code_challenge", &pkce.challenge)
             .append_pair("code_challenge_method", "S256")
+            .append_pair("state", state)
             .append_pair("access_type", "offline")
             .append_pair("prompt", "consent");
 
@@ -119,9 +143,10 @@ impl GoogleDriveProvider {
 
         let redirect_uri = format!("http://127.0.0.1:{}", port);
         let pkce = generate_pkce();
+        let state = generate_oauth_state();
         let client_id = Self::get_client_id(conn);
 
-        let auth_url = Self::build_auth_url(&client_id, &redirect_uri, &pkce)?;
+        let auth_url = Self::build_auth_url(&client_id, &redirect_uri, &pkce, &state)?;
 
         // Open the browser to Google Login
         if let Err(e) = open::that(&auth_url) {
@@ -143,12 +168,15 @@ impl GoogleDriveProvider {
 
         let mut auth_code = None;
         let mut error_msg = None;
+        let mut callback_state = None;
 
         for (k, v) in parsed_url.query_pairs() {
             if k == "code" {
                 auth_code = Some(v.to_string());
             } else if k == "error" {
                 error_msg = Some(v.to_string());
+            } else if k == "state" {
+                callback_state = Some(v.to_string());
             }
         }
 
@@ -164,6 +192,20 @@ impl GoogleDriveProvider {
             );
             let _ = request.respond(response);
             return Err(format!("Google authorization denied: {}", err));
+        }
+
+        if let Err(err_msg) = validate_oauth_state(callback_state.as_deref(), &state) {
+            let response = tiny_http::Response::from_string(format!(
+                "<html><body style='font-family: sans-serif; text-align: center; padding: 40px;'>\
+                <h2>Security Verification Failed</h2><p>{}</p>\
+                <p>You can close this tab and return to Secure Backup.</p></body></html>",
+                err_msg
+            ))
+            .with_header(
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html"[..]).unwrap(),
+            );
+            let _ = request.respond(response);
+            return Err(err_msg);
         }
 
         let code = auth_code
