@@ -3,6 +3,7 @@ pub mod cloud;
 pub mod commands;
 pub mod db;
 pub mod encryption;
+pub mod fs_utils;
 pub mod hashing;
 pub mod models;
 pub mod restore;

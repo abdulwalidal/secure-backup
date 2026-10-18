@@ -1,6 +1,5 @@
 use crate::models::{BackupManifest, DbStats, FileRecord, SnapshotRecord};
 use rusqlite::{params, Connection, Result};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn get_db_path() -> Result<PathBuf, String> {
@@ -8,12 +7,16 @@ pub fn get_db_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "Could not determine system local data directory".to_string())?;
     let app_dir = data_dir.join("secure-backup");
 
-    if !app_dir.exists() {
-        fs::create_dir_all(&app_dir)
-            .map_err(|e| format!("Failed to create database directory: {}", e))?;
+    crate::fs_utils::ensure_secure_dir(&app_dir)
+        .map_err(|e| format!("Failed to create database directory: {}", e))?;
+
+    let db_path = app_dir.join("backup.db");
+    if db_path.exists() {
+        crate::fs_utils::ensure_secure_file(&db_path)
+            .map_err(|e| format!("Failed to secure database file permissions: {}", e))?;
     }
 
-    Ok(app_dir.join("backup.db"))
+    Ok(db_path)
 }
 
 pub fn get_connection() -> Result<Connection, String> {
@@ -21,11 +24,26 @@ pub fn get_connection() -> Result<Connection, String> {
     let conn = Connection::open(&db_path)
         .map_err(|e| format!("Failed to open SQLite database at {:?}: {}", db_path, e))?;
 
+    crate::fs_utils::ensure_secure_file(&db_path)
+        .map_err(|e| format!("Failed to secure database file permissions: {}", e))?;
+
     init_db(&conn).map_err(|e| format!("Failed to initialize database schema: {}", e))?;
     Ok(conn)
 }
 
 pub fn init_db(conn: &Connection) -> Result<()> {
+    if let Some(path_str) = conn.path() {
+        let path = Path::new(path_str);
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = crate::fs_utils::ensure_secure_dir(parent);
+            }
+        }
+        if path.exists() {
+            let _ = crate::fs_utils::ensure_secure_file(path);
+        }
+    }
+
     conn.execute_batch(
         r#"
         PRAGMA foreign_keys = ON;

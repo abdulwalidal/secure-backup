@@ -246,3 +246,67 @@ fn test_delete_snapshot_helper_cascades_and_removes_records() {
     let deleted_again = delete_snapshot(&conn, "snap-del-helper-test").unwrap();
     assert!(!deleted_again);
 }
+
+#[test]
+#[cfg(unix)]
+fn test_database_and_directory_permissions_hardening() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("secbkp_db_perm_test_{}", uuid::Uuid::new_v4()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    // 1. Directory creation via ensure_secure_dir
+    crate::fs_utils::ensure_secure_dir(&temp_dir).expect("ensure_secure_dir should succeed");
+    let dir_mode = std::fs::metadata(&temp_dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        dir_mode, 0o700,
+        "Database directory must have 0700 permissions"
+    );
+
+    // 2. Open SQLite file connection
+    let db_path = temp_dir.join("backup.db");
+    let conn = Connection::open(&db_path).expect("open test db file");
+    init_db(&conn).expect("init_db on file db");
+
+    let file_mode = std::fs::metadata(&db_path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(file_mode, 0o600, "Database file must have 0600 permissions");
+
+    // 3. Test hardening of existing weakened directory and database file
+    std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o755)).expect("set 0755");
+    std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o644)).expect("set 0644");
+
+    let weakened_dir_mode = std::fs::metadata(&temp_dir).unwrap().permissions().mode() & 0o777;
+    let weakened_file_mode = std::fs::metadata(&db_path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(weakened_dir_mode, 0o755);
+    assert_eq!(weakened_file_mode, 0o644);
+
+    // Re-running init_db should harden existing directory to 0700 and db file to 0600
+    init_db(&conn).expect("init_db hardening");
+
+    let hardened_dir_mode = std::fs::metadata(&temp_dir).unwrap().permissions().mode() & 0o777;
+    let hardened_file_mode = std::fs::metadata(&db_path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        hardened_dir_mode, 0o700,
+        "Weakened directory must be hardened to 0700"
+    );
+    assert_eq!(
+        hardened_file_mode, 0o600,
+        "Weakened database file must be hardened to 0600"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_get_db_path_hardens_app_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let db_path = get_db_path().expect("get_db_path should succeed");
+    let app_dir = db_path.parent().expect("must have parent");
+    assert!(app_dir.exists());
+
+    let dir_mode = std::fs::metadata(app_dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(dir_mode, 0o700, "App directory must be restricted to 0700");
+}

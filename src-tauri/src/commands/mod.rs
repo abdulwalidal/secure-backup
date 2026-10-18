@@ -5,7 +5,6 @@ use crate::backup::{
 use crate::models::{
     BackupManifest, BackupResult, CommandResult, FolderInfo, ScanOptions, StorageStats,
 };
-use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -596,7 +595,7 @@ pub async fn restore_snapshot(
 pub fn get_storage_stats() -> CommandResult<StorageStats> {
     let backup_path = crate::backup::get_backups_dir();
 
-    if let Err(error) = fs::create_dir_all(&backup_path) {
+    if let Err(error) = crate::fs_utils::ensure_secure_dir(&backup_path) {
         return CommandResult {
             success: false,
             data: None,

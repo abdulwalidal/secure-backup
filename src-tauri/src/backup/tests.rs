@@ -690,3 +690,89 @@ fn test_create_local_backup_with_options_respects_exclusions() {
     let _ = fs::remove_dir_all(&test_dir);
     let _ = fs::remove_dir_all(&backup_res.target_directory);
 }
+
+#[test]
+#[cfg(unix)]
+fn test_created_backup_permissions_hardening() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let test_dir = std::env::temp_dir().join(format!("sb_perm_test_{}", uuid::Uuid::new_v4()));
+    let _ = fs::remove_dir_all(&test_dir);
+    fs::create_dir_all(&test_dir).unwrap();
+
+    let file1 = test_dir.join("confidential.txt");
+    fs::write(&file1, b"secret user content").unwrap();
+
+    // 1. Unencrypted backup
+    let res_unenc = create_local_backup(&test_dir, None).unwrap();
+    let unenc_snapshot_path = std::path::Path::new(&res_unenc.target_directory);
+    let unenc_manifest_path = unenc_snapshot_path.join("manifest.json");
+    let unenc_data_dir = unenc_snapshot_path.join("data");
+    let unenc_file = unenc_data_dir.join("confidential.txt");
+
+    let snapshot_mode = fs::metadata(unenc_snapshot_path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    let manifest_mode = fs::metadata(&unenc_manifest_path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    let data_dir_mode = fs::metadata(&unenc_data_dir).unwrap().permissions().mode() & 0o777;
+    let file_mode = fs::metadata(&unenc_file).unwrap().permissions().mode() & 0o777;
+
+    assert_eq!(
+        snapshot_mode, 0o700,
+        "Unencrypted snapshot dir must be 0700"
+    );
+    assert_eq!(
+        manifest_mode, 0o600,
+        "Unencrypted manifest.json must be 0600"
+    );
+    assert_eq!(data_dir_mode, 0o700, "Unencrypted data dir must be 0700");
+    assert_eq!(file_mode, 0o600, "Unencrypted data file must be 0600");
+
+    let _ = fs::remove_dir_all(&res_unenc.target_directory);
+
+    // 2. Encrypted backup
+    let res_enc = create_local_backup(&test_dir, Some("securepass123")).unwrap();
+    let enc_snapshot_path = std::path::Path::new(&res_enc.target_directory);
+    let enc_manifest_path = enc_snapshot_path.join("manifest.json.enc");
+    let enc_data_dir = enc_snapshot_path.join("data");
+
+    let enc_snapshot_mode = fs::metadata(enc_snapshot_path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    let enc_manifest_mode = fs::metadata(&enc_manifest_path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    let enc_data_dir_mode = fs::metadata(&enc_data_dir).unwrap().permissions().mode() & 0o777;
+
+    assert_eq!(
+        enc_snapshot_mode, 0o700,
+        "Encrypted snapshot dir must be 0700"
+    );
+    assert_eq!(
+        enc_manifest_mode, 0o600,
+        "Encrypted manifest.json.enc must be 0600"
+    );
+    assert_eq!(enc_data_dir_mode, 0o700, "Encrypted data dir must be 0700");
+
+    // Check encrypted files in data dir
+    for entry in fs::read_dir(&enc_data_dir).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            let enc_file_mode = entry.metadata().unwrap().permissions().mode() & 0o777;
+            assert_eq!(enc_file_mode, 0o600, "Encrypted data file must be 0600");
+        }
+    }
+
+    let _ = fs::remove_dir_all(&res_enc.target_directory);
+    let _ = fs::remove_dir_all(&test_dir);
+}
