@@ -184,7 +184,7 @@
                       placeholder="Enter passphrase to lock and encrypt files..."
                       autocomplete="off"
                     />
-                    <button type="button" id="btn-toggle-pass" class="btn-icon" title="Show/Hide">
+                    <button type="button" id="btn-toggle-pass" class="btn-icon" title="Show/Hide" data-tooltip="Toggle passphrase visibility">
                       <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                         <circle cx="12" cy="12" r="3"/>
@@ -372,7 +372,7 @@
               <h1 class="page-title">Backup History</h1>
               <p class="page-subtitle">Inspect completed encrypted backup snapshots and integrity hashes.</p>
             </div>
-            <button id="btn-refresh-history" class="btn btn-secondary">
+            <button id="btn-refresh-history" class="btn btn-secondary" data-tooltip="Refresh backup history">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="23 4 23 10 17 10"/>
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -403,7 +403,7 @@
               <p class="page-subtitle">Discover encrypted cloud snapshots and reconstruct your local backup ledger.</p>
             </div>
             <div class="header-actions">
-              <button id="btn-scan-cloud" class="btn btn-secondary">
+              <button id="btn-scan-cloud" class="btn btn-secondary" data-tooltip="Scan Google Drive for remote snapshots">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>
@@ -411,7 +411,7 @@
                 </svg>
                 <span>Scan Cloud</span>
               </button>
-              <button id="btn-rebuild-catalog" class="btn btn-primary">
+              <button id="btn-rebuild-catalog" class="btn btn-primary" data-tooltip="Rebuild SQLite catalog from cloud vault">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="23 4 23 10 17 10"/>
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -534,7 +534,7 @@
                 </div>
                 <div class="meta-row">
                   <span class="meta-key">File Manager:</span>
-                  <button id="btn-open-backup-folder" class="btn btn-secondary btn-sm" type="button">
+                  <button id="btn-open-backup-folder" class="btn btn-secondary btn-sm" type="button" data-tooltip="Open local backups in system file manager">
                     Open in File Manager
                   </button>
                 </div>

@@ -1357,3 +1357,40 @@ body {
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: #f87171;
 }
+
+/* Button Tooltips and Interactive States */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--bg-secondary, #1a2333);
+  color: var(--text-main, #f1f5f9);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.btn:active,
+.btn-icon:active,
+.btn-input-action:active {
+  transform: scale(0.97);
+}
