@@ -1394,3 +1394,43 @@ body {
 .btn-input-action:active {
   transform: scale(0.97);
 }
+
+/* Accessibility: Focus Rings and Dark-Mode Contrast */
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-success:focus-visible,
+.btn-danger:focus-visible,
+.btn-icon:focus-visible,
+.btn-input-action:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+.form-control:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.checkbox-label input:focus-visible,
+.radio-option input:focus-visible,
+.setting-item input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
