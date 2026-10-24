@@ -1242,14 +1242,42 @@ function initializeApp() {
       `;
     }
 
-    if (restoreModal) restoreModal.style.display = "flex";
+    if (restoreModal) {
+      restoreModal.classList.add("modal-open");
+      restoreModal.setAttribute("aria-hidden", "false");
+      // Focus the passphrase input if present and visible, else focus destination browse button
+      window.setTimeout(() => {
+        if (isEncrypted && restorePassphrase) {
+          restorePassphrase.focus();
+        } else if (btnChooseRestoreDest) {
+          btnChooseRestoreDest.focus();
+        }
+      }, 50);
+    }
   }
 
   function closeRestoreModal() {
-    if (restoreModal) restoreModal.style.display = "none";
+    if (restoreModal) {
+      restoreModal.classList.remove("modal-open");
+      restoreModal.setAttribute("aria-hidden", "true");
+    }
     activeRestoreSnapshotId = null;
     activeRestoreDestination = null;
   }
+
+  // Close when pressing Escape
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Escape" && restoreModal?.classList.contains("modal-open")) {
+      closeRestoreModal();
+    }
+  });
+
+  // Close when clicking modal backdrop outside the dialog
+  restoreModal?.addEventListener("click", (e: MouseEvent) => {
+    if (e.target === restoreModal) {
+      closeRestoreModal();
+    }
+  });
 
   btnCloseRestoreModal?.addEventListener("click", closeRestoreModal);
   btnCancelRestore?.addEventListener("click", closeRestoreModal);
