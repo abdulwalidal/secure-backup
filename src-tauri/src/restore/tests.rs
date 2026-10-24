@@ -1124,3 +1124,36 @@ fn test_verify_snapshot_passphrase_tampered_file_payload() {
     let _ = fs::remove_dir_all(&tmp_src);
     let _ = fs::remove_dir_all(&backup_res.target_directory);
 }
+
+#[test]
+fn test_cached_key_zeroize_bytes() {
+    use crate::restore::CachedKey;
+    use zeroize::Zeroize;
+
+    let salt = [0xabu8; 16];
+    let pw_hash = "mock_sha256_hash_string".to_string();
+    let key = [0x33u8; 32];
+
+    let mut cached = CachedKey::new(salt, pw_hash, key);
+    assert_eq!(cached.key, [0x33u8; 32]);
+    assert_eq!(cached.salt, [0xabu8; 16]);
+
+    cached.zeroize();
+    assert_eq!(cached.key, [0u8; 32]);
+    assert_eq!(cached.salt, [0u8; 16]);
+    assert!(cached.pw_hash.is_empty());
+}
+
+#[test]
+fn test_cached_key_option_zeroize() {
+    use crate::restore::CachedKey;
+    use zeroize::Zeroize;
+
+    let mut opt = Some(CachedKey::new(
+        [0x12u8; 16],
+        "hash".to_string(),
+        [0x44u8; 32],
+    ));
+    opt.zeroize();
+    assert!(opt.is_none());
+}

@@ -10,6 +10,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(test)]
 pub mod tests;
@@ -227,6 +228,26 @@ pub fn is_valid_opaque_stored_filename(name: &str) -> bool {
     false
 }
 
+/// A cached derived key wrapper that zeroizes sensitive cryptographic material upon drop or replacement.
+#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct CachedKey {
+    pub salt: [u8; SALT_LEN],
+    pub pw_hash: String,
+    pub key: [u8; 32],
+}
+
+impl CachedKey {
+    pub fn new(salt: [u8; SALT_LEN], pw_hash: String, key: [u8; 32]) -> Self {
+        Self { salt, pw_hash, key }
+    }
+}
+
+impl From<([u8; SALT_LEN], String, [u8; 32])> for CachedKey {
+    fn from((salt, pw_hash, key): ([u8; SALT_LEN], String, [u8; 32])) -> Self {
+        Self { salt, pw_hash, key }
+    }
+}
+
 enum FileRestoreOutcome {
     Restored { bytes: u64 },
     Skipped { reason: String },
@@ -244,7 +265,7 @@ fn restore_single_payload(
     is_encrypted: bool,
     dest_path: &Path,
     conflict_policy: ConflictPolicy,
-    cached_key: &mut Option<([u8; SALT_LEN], String, [u8; 32])>,
+    cached_key: &mut Option<CachedKey>,
     passphrase: Option<&str>,
 ) -> Result<FileRestoreOutcome, String> {
     // 1. Check existing file according to conflict policy
@@ -265,7 +286,7 @@ fn restore_single_payload(
     }
 
     // 2. Decrypt or use raw bytes
-    let plaintext = if is_encrypted {
+    let mut plaintext = if is_encrypted {
         let pw = passphrase
             .ok_or_else(|| "Passphrase is required to decrypt snapshot files.".to_string())?;
 
@@ -274,14 +295,11 @@ fn restore_single_payload(
 
         // Reuse cached derived key if salt and passphrase match
         let key = match cached_key {
-            Some((cached_salt, cached_pw_hash, k))
-                if *cached_salt == file_salt && *cached_pw_hash == pw_hash =>
-            {
-                *k
-            }
+            Some(ref cached) if cached.salt == file_salt && cached.pw_hash == pw_hash => cached.key,
             _ => {
+                cached_key.zeroize();
                 let derived = derive_key(pw, &file_salt)?;
-                *cached_key = Some((file_salt, pw_hash, derived));
+                *cached_key = Some(CachedKey::new(file_salt, pw_hash, derived));
                 derived
             }
         };
@@ -289,7 +307,7 @@ fn restore_single_payload(
         match decrypt_archive_payload_with_key(file_bytes, &key) {
             Ok(p) => p,
             Err(e) => {
-                *cached_key = None;
+                cached_key.zeroize();
                 return Err(e);
             }
         }
@@ -318,14 +336,18 @@ fn restore_single_payload(
 
     // Use atomic temporary write in same parent directory then rename
     let temp_dest = dest_path.with_extension(format!("sbtmp_{}", rand::random::<u32>()));
-    {
+    let write_res = (|| -> Result<(), String> {
         let mut temp_file = File::create(&temp_dest)
             .map_err(|e| format!("Failed to create temporary file {:?}: {}", temp_dest, e))?;
         temp_file.write_all(&plaintext).map_err(|e| {
             let _ = fs::remove_file(&temp_dest);
             format!("Failed to write plaintext {:?}: {}", temp_dest, e)
         })?;
-    }
+        Ok(())
+    })();
+
+    plaintext.zeroize();
+    write_res?;
 
     fs::rename(&temp_dest, dest_path).map_err(|e| {
         let _ = fs::remove_file(&temp_dest);
@@ -407,7 +429,7 @@ pub fn restore_local_snapshot(
     let mut files_failed = 0;
     let mut total_bytes_restored = 0u64;
     let mut items = Vec::new();
-    let mut cached_key = None;
+    let mut cached_key: Option<CachedKey> = None;
 
     let data_dir = snapshot_dir.join("data");
 
@@ -543,6 +565,8 @@ pub fn restore_local_snapshot(
             }
         }
     }
+
+    cached_key.zeroize();
 
     Ok(RestoreResult {
         snapshot_id: snapshot_id.to_string(),
@@ -688,7 +712,7 @@ pub fn restore_cloud_snapshot(
     let mut files_failed = 0;
     let mut total_bytes_restored = 0u64;
     let mut items = Vec::new();
-    let mut cached_key = None;
+    let mut cached_key: Option<CachedKey> = None;
 
     for file_meta in &manifest.files {
         // Validate destination path
@@ -827,6 +851,8 @@ pub fn restore_cloud_snapshot(
             }
         }
     }
+
+    cached_key.zeroize();
 
     Ok(RestoreResult {
         snapshot_id: snapshot_id.to_string(),

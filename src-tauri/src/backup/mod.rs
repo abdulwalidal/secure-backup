@@ -7,6 +7,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
+use zeroize::Zeroize;
 
 /// Default directory names pruned by the scanner to eliminate heavy build and cache bloat.
 pub const DEFAULT_EXCLUDED_DIRS: &[&str] = &[
@@ -188,19 +189,25 @@ pub fn create_local_backup_with_options<P: AsRef<Path>>(
     if is_encrypted {
         let pw = passphrase.unwrap();
         let salt = generate_salt();
-        let key =
+        let mut key =
             derive_key(pw, &salt).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
         salt_hex = Some(hex::encode(salt));
         encryption_algorithm = Some("AES-256-GCM / Argon2id".to_string());
 
         // 3. Encrypt each file into an opaque <UUIDv4>.enc flat file
-        for file_meta in &mut files {
-            let stored_name = format!("{}.enc", uuid::Uuid::new_v4());
-            file_meta.stored_filename = Some(stored_name.clone());
-            let dest_path = snapshot_data_dir.join(&stored_name);
-            encrypt_file(&file_meta.absolute_path, &dest_path, &key, &salt)?;
-        }
+        let encrypt_res: io::Result<()> = (|| {
+            for file_meta in &mut files {
+                let stored_name = format!("{}.enc", uuid::Uuid::new_v4());
+                file_meta.stored_filename = Some(stored_name.clone());
+                let dest_path = snapshot_data_dir.join(&stored_name);
+                encrypt_file(&file_meta.absolute_path, &dest_path, &key, &salt)?;
+            }
+            Ok(())
+        })();
+
+        key.zeroize();
+        encrypt_res?;
     } else {
         // Plaintext copy
         for file_meta in &files {

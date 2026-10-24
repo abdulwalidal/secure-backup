@@ -140,9 +140,10 @@ pub fn delete_backup_snapshot(snapshot_id: String) -> CommandResult<bool> {
 #[tauri::command]
 pub fn test_encryption_roundtrip(sample_text: String, passphrase: String) -> CommandResult<String> {
     use crate::encryption::{decrypt_bytes, derive_key, encrypt_bytes, generate_salt};
+    use zeroize::Zeroize;
 
     let salt = generate_salt();
-    let key = match derive_key(&passphrase, &salt) {
+    let mut key = match derive_key(&passphrase, &salt) {
         Ok(k) => k,
         Err(e) => {
             return CommandResult {
@@ -156,17 +157,22 @@ pub fn test_encryption_roundtrip(sample_text: String, passphrase: String) -> Com
     let (ciphertext, nonce) = match encrypt_bytes(sample_text.as_bytes(), &key) {
         Ok(res) => res,
         Err(e) => {
+            key.zeroize();
             return CommandResult {
                 success: false,
                 data: None,
                 error: Some(e),
-            }
+            };
         }
     };
 
-    match decrypt_bytes(&ciphertext, &nonce, &key) {
-        Ok(dec) => {
+    let dec_res = decrypt_bytes(&ciphertext, &nonce, &key);
+    key.zeroize();
+
+    match dec_res {
+        Ok(mut dec) => {
             let recovered = String::from_utf8_lossy(&dec).to_string();
+            dec.zeroize();
             CommandResult {
                 success: true,
                 data: Some(recovered),

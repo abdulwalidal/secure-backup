@@ -6,6 +6,7 @@ use rand::RngCore;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
+use zeroize::Zeroize;
 
 pub const SALT_LEN: usize = 16;
 pub const NONCE_LEN: usize = 12;
@@ -38,9 +39,10 @@ pub fn derive_key(password: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; 32], Str
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
-    argon2
-        .hash_password_into(password.as_bytes(), salt, &mut key)
-        .map_err(|e| format!("Key derivation error: {}", e))?;
+    if let Err(e) = argon2.hash_password_into(password.as_bytes(), salt, &mut key) {
+        key.zeroize();
+        return Err(format!("Key derivation error: {}", e));
+    }
 
     Ok(key)
 }
@@ -88,7 +90,9 @@ pub fn encrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
     let mut plaintext = Vec::new();
     file.read_to_end(&mut plaintext)?;
 
-    let (ciphertext, nonce) = encrypt_bytes(&plaintext, key).map_err(io::Error::other)?;
+    let encrypt_res = encrypt_bytes(&plaintext, key);
+    plaintext.zeroize();
+    let (ciphertext, nonce) = encrypt_res.map_err(io::Error::other)?;
 
     let mut out = File::create(dest)?;
     out.write_all(MAGIC_HEADER)?;
@@ -121,8 +125,10 @@ pub fn encrypt_archive_payload_with_passphrase(
     password: &str,
 ) -> Result<Vec<u8>, String> {
     let salt = generate_salt();
-    let key = derive_key(password, &salt)?;
-    encrypt_archive_payload(data, &key, &salt)
+    let mut key = derive_key(password, &salt)?;
+    let result = encrypt_archive_payload(data, &key, &salt);
+    key.zeroize();
+    result
 }
 
 /// Decrypts the raw byte payload of a SECBKP01 encrypted archive.
@@ -144,8 +150,10 @@ pub fn decrypt_archive_payload(buffer: &[u8], password: &str) -> Result<Vec<u8>,
 
     let ciphertext = &buffer[36..];
 
-    let key = derive_key(password, &salt)?;
-    decrypt_bytes(ciphertext, &nonce, &key)
+    let mut key = derive_key(password, &salt)?;
+    let result = decrypt_bytes(ciphertext, &nonce, &key);
+    key.zeroize();
+    result
 }
 
 /// Extracts the 16-byte Argon2id salt from a SECBKP01 encrypted archive header.
@@ -190,159 +198,18 @@ pub fn decrypt_file<P: AsRef<Path>, Q: AsRef<Path>>(
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    let plaintext = decrypt_archive_payload(&buffer, password)
+    let mut plaintext = decrypt_archive_payload(&buffer, password)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let mut out = File::create(dest)?;
-    out.write_all(&plaintext)?;
+    let res = (|| -> io::Result<()> {
+        let mut out = File::create(dest)?;
+        out.write_all(&plaintext)?;
+        Ok(())
+    })();
 
-    Ok(())
+    plaintext.zeroize();
+    res
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn test_argon2_key_derivation_deterministic() {
-        let salt = [42u8; SALT_LEN];
-        let key1 = derive_key("correct-horse-battery", &salt).unwrap();
-        let key2 = derive_key("correct-horse-battery", &salt).unwrap();
-        assert_eq!(key1, key2);
-
-        let key_wrong = derive_key("different-password", &salt).unwrap();
-        assert_ne!(key1, key_wrong);
-    }
-
-    #[test]
-    fn test_aes256_gcm_roundtrip() {
-        let salt = generate_salt();
-        let key = derive_key("my-secret-vault", &salt).unwrap();
-        let original_data = b"Highly confidential backup data. Keep safe.";
-
-        let (ciphertext, nonce) = encrypt_bytes(original_data, &key).unwrap();
-        assert_ne!(&ciphertext[..], original_data);
-
-        let decrypted = decrypt_bytes(&ciphertext, &nonce, &key).unwrap();
-        assert_eq!(&decrypted[..], original_data);
-    }
-
-    #[test]
-    fn test_tamper_detection() {
-        let salt = generate_salt();
-        let key = derive_key("integrity-test-passphrase", &salt).unwrap();
-        let original_data = b"Tamper detection verification string.";
-
-        let (mut ciphertext, nonce) = encrypt_bytes(original_data, &key).unwrap();
-
-        // Flip one bit in ciphertext to simulate tampering or corruption
-        ciphertext[0] ^= 0x01;
-
-        let result = decrypt_bytes(&ciphertext, &nonce, &key);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_file_encryption_and_decryption() {
-        let tmp = std::env::temp_dir();
-        let plain_src = tmp.join("sb_plain_test.txt");
-        let enc_dest = tmp.join("sb_test.enc");
-        let dec_dest = tmp.join("sb_restored_test.txt");
-
-        let test_content = b"Zero-knowledge encrypted desktop file on Ubuntu Linux!";
-        fs::write(&plain_src, test_content).unwrap();
-
-        let salt = generate_salt();
-        let key = derive_key("test-password-123", &salt).unwrap();
-
-        // Encrypt file
-        encrypt_file(&plain_src, &enc_dest, &key, &salt).unwrap();
-
-        // Ensure encrypted file content is not plaintext
-        let enc_bytes = fs::read(&enc_dest).unwrap();
-        assert!(!enc_bytes
-            .windows(test_content.len())
-            .any(|w| w == test_content));
-
-        // Decrypt with correct password
-        decrypt_file(&enc_dest, &dec_dest, "test-password-123").unwrap();
-        let restored = fs::read(&dec_dest).unwrap();
-        assert_eq!(restored, test_content);
-
-        // Decrypt with WRONG password should fail
-        let wrong_dest = tmp.join("sb_wrong_test.txt");
-        let bad_result = decrypt_file(&enc_dest, &wrong_dest, "wrong-password");
-        assert!(bad_result.is_err());
-
-        // Cleanup
-        let _ = fs::remove_file(plain_src);
-        let _ = fs::remove_file(enc_dest);
-        let _ = fs::remove_file(dec_dest);
-        let _ = fs::remove_file(wrong_dest);
-    }
-
-    #[test]
-    fn test_archive_payload_roundtrip_and_structure() {
-        let password = "manifest-test-passphrase-2026";
-        let original_data = b"{\"snapshot_id\": \"snap_123\", \"files\": [\"a.txt\", \"b.txt\"]}";
-
-        let encrypted = encrypt_archive_payload_with_passphrase(original_data, password)
-            .expect("Encryption failed");
-
-        // Verify SECBKP01 structure: 8B magic + 16B salt + 12B nonce + ciphertext + 16B GCM tag
-        assert!(encrypted.len() >= 8 + SALT_LEN + NONCE_LEN + 16);
-        assert_eq!(&encrypted[..8], MAGIC_HEADER);
-
-        // Verify salt can be extracted
-        let salt = extract_salt_from_archive(&encrypted).expect("Salt extraction failed");
-        assert_eq!(&salt[..], &encrypted[8..24]);
-
-        // Verify successful decryption with correct passphrase
-        let decrypted = decrypt_archive_payload(&encrypted, password).expect("Decryption failed");
-        assert_eq!(decrypted, original_data);
-
-        // Verify decryption with wrong passphrase fails
-        let wrong_res = decrypt_archive_payload(&encrypted, "wrong-passphrase");
-        assert!(wrong_res.is_err());
-    }
-
-    #[test]
-    fn test_archive_payload_tampering_detection() {
-        let password = "tamper-protection-passphrase";
-        let original_data = b"Top secret backup manifest payload.";
-
-        let encrypted = encrypt_archive_payload_with_passphrase(original_data, password)
-            .expect("Encryption failed");
-
-        // 1. Corrupt magic header
-        let mut bad_header = encrypted.clone();
-        bad_header[0] = b'X';
-        assert!(decrypt_archive_payload(&bad_header, password).is_err());
-
-        // 2. Corrupt salt
-        let mut bad_salt = encrypted.clone();
-        bad_salt[8] ^= 0xff;
-        assert!(decrypt_archive_payload(&bad_salt, password).is_err());
-
-        // 3. Corrupt nonce
-        let mut bad_nonce = encrypted.clone();
-        bad_nonce[24] ^= 0x55;
-        assert!(decrypt_archive_payload(&bad_nonce, password).is_err());
-
-        // 4. Corrupt ciphertext body
-        let mut bad_ciphertext = encrypted.clone();
-        bad_ciphertext[36] ^= 0xaa;
-        assert!(decrypt_archive_payload(&bad_ciphertext, password).is_err());
-
-        // 5. Corrupt GCM authentication tag (last 16 bytes)
-        let mut bad_tag = encrypted.clone();
-        let last_idx = bad_tag.len() - 1;
-        bad_tag[last_idx] ^= 0x01;
-        assert!(decrypt_archive_payload(&bad_tag, password).is_err());
-
-        // 6. Truncated payload
-        let truncated = &encrypted[..20];
-        assert!(decrypt_archive_payload(truncated, password).is_err());
-    }
-}
+mod tests;
