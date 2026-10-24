@@ -542,25 +542,45 @@ body {
 .meta-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 13px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.meta-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.meta-row:first-of-type {
+  padding-top: 4px;
 }
 
 .meta-key {
   color: var(--text-muted);
+  font-weight: 500;
+  font-size: 13px;
 }
 
 .meta-val {
   color: var(--text-main);
   font-weight: 500;
+  text-align: right;
 }
 
 .meta-val.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
-  max-width: 250px;
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  color: #38bdf8;
 }
 
 .passphrase-container {
@@ -971,16 +991,20 @@ body {
   background: var(--bg-primary);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  padding: 18px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 14px;
-  transition: border-color 0.2s;
+  gap: 16px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .cloud-card:hover {
-  border-color: var(--accent-color);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
 .cloud-card.disabled {
@@ -989,6 +1013,8 @@ body {
 
 .cloud-card.disabled:hover {
   border-color: var(--card-border);
+  transform: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .cloud-header {
@@ -1000,13 +1026,14 @@ body {
 .cloud-title-group {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .cloud-name {
   font-weight: 600;
   font-size: 15px;
   color: var(--text-main);
+  letter-spacing: -0.2px;
 }
 
 .cloud-quota-badge {
@@ -1017,27 +1044,31 @@ body {
 .cloud-status-badge {
   font-size: 10px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 999px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .cloud-status-badge.connected {
   background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
 }
 
 .cloud-status-badge.disconnected {
-  background: rgba(148, 163, 184, 0.1);
+  background: rgba(148, 163, 184, 0.08);
   color: #94a3b8;
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .cloud-status-badge.roadmap {
   background: rgba(99, 102, 241, 0.12);
-  color: #818cf8;
+  color: #a5b4fc;
   border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
