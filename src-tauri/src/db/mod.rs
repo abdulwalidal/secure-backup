@@ -4,16 +4,30 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn get_db_path() -> Result<PathBuf, String> {
-    let data_dir = dirs::data_dir()
-        .ok_or_else(|| "Could not determine system local data directory".to_string())?;
-    let app_dir = data_dir.join("secure-backup");
-
-    if !app_dir.exists() {
-        fs::create_dir_all(&app_dir)
-            .map_err(|e| format!("Failed to create database directory: {}", e))?;
+    if let Ok(path) = std::env::var("SECURE_BACKUP_DB_PATH") {
+        return Ok(PathBuf::from(path));
     }
 
-    Ok(app_dir.join("backup.db"))
+    #[cfg(test)]
+    {
+        let test_dir = std::env::temp_dir().join("secure_backup_test_vault");
+        let _ = fs::create_dir_all(&test_dir);
+        Ok(test_dir.join("test_backup.db"))
+    }
+
+    #[cfg(not(test))]
+    {
+        let data_dir = dirs::data_dir()
+            .ok_or_else(|| "Could not determine system local data directory".to_string())?;
+        let app_dir = data_dir.join("secure-backup");
+
+        if !app_dir.exists() {
+            fs::create_dir_all(&app_dir)
+                .map_err(|e| format!("Failed to create database directory: {}", e))?;
+        }
+
+        Ok(app_dir.join("backup.db"))
+    }
 }
 
 pub fn get_connection() -> Result<Connection, String> {

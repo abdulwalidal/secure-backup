@@ -23,10 +23,26 @@ pub const DEFAULT_EXCLUDED_FILES: &[&str] = &[".DS_Store", "Thumbs.db"];
 
 /// Base directory for local backups: ~/.local/share/secure-backup/backups
 pub fn get_backups_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("secure-backup")
-        .join("backups")
+    if let Ok(dir) = std::env::var("SECURE_BACKUP_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    #[cfg(test)]
+    {
+        let test_dir = std::env::temp_dir()
+            .join("secure_backup_test_vault")
+            .join("backups");
+        let _ = fs::create_dir_all(&test_dir);
+        test_dir
+    }
+
+    #[cfg(not(test))]
+    {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("secure-backup")
+            .join("backups")
+    }
 }
 
 /// Recursively scans a source directory with configurable exclusion options,
