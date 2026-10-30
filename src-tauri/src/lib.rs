@@ -6,6 +6,7 @@ pub mod encryption;
 pub mod hashing;
 pub mod models;
 pub mod restore;
+pub mod security;
 
 use commands::{
     connect_google_drive, delete_backup_snapshot, disconnect_cloud_provider,

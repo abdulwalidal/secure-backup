@@ -179,9 +179,14 @@ pub fn create_local_backup_with_options<P: AsRef<Path>>(
         format!("{}_{}", Utc::now().format("%Y%m%d_%H%M%S"), source_name)
     };
     let backups_base = get_backups_dir();
+    fs::create_dir_all(&backups_base)?;
+    crate::security::protect_directory(&backups_base)?;
+
     let snapshot_dir = backups_base.join(&backup_id);
     let snapshot_data_dir = snapshot_dir.join("data");
     fs::create_dir_all(&snapshot_data_dir)?;
+    crate::security::protect_directory(&snapshot_dir)?;
+    crate::security::protect_directory(&snapshot_data_dir)?;
 
     let mut salt_hex = None;
     let mut encryption_algorithm = None;
@@ -202,6 +207,7 @@ pub fn create_local_backup_with_options<P: AsRef<Path>>(
                 file_meta.stored_filename = Some(stored_name.clone());
                 let dest_path = snapshot_data_dir.join(&stored_name);
                 encrypt_file(&file_meta.absolute_path, &dest_path, &key, &salt)?;
+                crate::security::protect_file(&dest_path)?;
             }
             Ok(())
         })();
@@ -212,10 +218,14 @@ pub fn create_local_backup_with_options<P: AsRef<Path>>(
         // Plaintext copy
         for file_meta in &files {
             let dest_path = snapshot_data_dir.join(&file_meta.relative_path);
+
             if let Some(parent) = dest_path.parent() {
                 fs::create_dir_all(parent)?;
+                crate::security::protect_directory(parent)?;
             }
+
             fs::copy(&file_meta.absolute_path, &dest_path)?;
+            crate::security::protect_file(&dest_path)?;
         }
     }
 
@@ -247,13 +257,15 @@ pub fn create_local_backup_with_options<P: AsRef<Path>>(
         .map_err(io::Error::other)?;
 
         let enc_manifest_path = snapshot_dir.join("manifest.json.enc");
-        let mut enc_manifest_file = File::create(enc_manifest_path)?;
+        let mut enc_manifest_file = File::create(&enc_manifest_path)?;
         enc_manifest_file.write_all(&enc_manifest_bytes)?;
+        crate::security::protect_file(&enc_manifest_path)?;
     } else {
         // Save plaintext manifest.json for unencrypted backups
         let manifest_path = snapshot_dir.join("manifest.json");
-        let mut manifest_file = File::create(manifest_path)?;
+        let mut manifest_file = File::create(&manifest_path)?;
         manifest_file.write_all(manifest_json.as_bytes())?;
+        crate::security::protect_file(&manifest_path)?;
     }
 
     // 5. Persist snapshot records in local SQLite database
