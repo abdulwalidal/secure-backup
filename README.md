@@ -228,6 +228,7 @@ graph LR
 
 - **Passphrase Responsibility**: Passphrases are not escrowed, saved to disk, or sent across any network. If you lose your passphrase, encrypted backups cannot be recovered.
 - **Local Host Security**: Secure Backup does not protect against malware, keyloggers, or unauthorized users with root/administrator access on the local host machine.
+- **Local Data Permissions**: On Linux and macOS, application-owned Secure Backup directories are restricted to the current user (`700`) and files are restricted to the current user (`600`). Existing application data is hardened when accessed by the application. On Windows, POSIX permission modes do not apply, so Secure Backup leaves the existing Windows filesystem ACLs unchanged. These protections do not defend against users with root/administrator-level access.
 - **File Size Leakage**: AES-GCM preserves the approximate size of the underlying data (ciphertext length equals plaintext length plus tag and container headers). Traffic analysis or size analysis may reveal clues about stored file types.
 - **Local Token Storage**: Google Drive OAuth refresh tokens are stored in the local SQLite database (`~/.local/share/secure-backup/backup.db`). Restrict local machine access to protect these credentials.
 - **Unencrypted Backups Option**: The application supports taking local unencrypted backups if no passphrase is provided. These snapshots do not have metadata or content protection.

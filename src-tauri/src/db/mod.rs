@@ -26,6 +26,9 @@ pub fn get_db_path() -> Result<PathBuf, String> {
                 .map_err(|e| format!("Failed to create database directory: {}", e))?;
         }
 
+        crate::security::protect_directory(&app_dir)
+            .map_err(|e| format!("Failed to protect database directory: {}", e))?;
+
         Ok(app_dir.join("backup.db"))
     }
 }
@@ -34,6 +37,9 @@ pub fn get_connection() -> Result<Connection, String> {
     let db_path = get_db_path()?;
     let conn = Connection::open(&db_path)
         .map_err(|e| format!("Failed to open SQLite database at {:?}: {}", db_path, e))?;
+
+    crate::security::protect_file(&db_path)
+        .map_err(|e| format!("Failed to protect SQLite database: {}", e))?;
 
     init_db(&conn).map_err(|e| format!("Failed to initialize database schema: {}", e))?;
     Ok(conn)
