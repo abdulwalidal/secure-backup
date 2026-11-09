@@ -18,7 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   dbStats,
 }) => {
   return (
-    <header className="h-18 px-8 border-b border-zinc-800/80 bg-zinc-950/70 backdrop-blur-md flex items-center justify-between shrink-0 select-none">
+    <header className="h-18 px-8 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between shrink-0 select-none">
       <div>
         <h2 className="text-lg font-semibold text-zinc-100 tracking-tight leading-none">
           {title}

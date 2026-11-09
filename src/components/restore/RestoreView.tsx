@@ -145,7 +145,7 @@ export const RestoreView: React.FC<RestoreViewProps> = ({
         {/* Left Column: Configuration Form (2 cols) */}
         <div className="lg:col-span-2 space-y-6">
           {/* Step 1: Snapshot Selection */}
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-semibold text-xs border border-blue-500/20">
                 1
@@ -193,7 +193,7 @@ export const RestoreView: React.FC<RestoreViewProps> = ({
           </div>
 
           {/* Step 2: Destination Directory */}
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-semibold text-xs border border-blue-500/20">
@@ -259,7 +259,7 @@ export const RestoreView: React.FC<RestoreViewProps> = ({
 
         {/* Right Column: Passphrase Verification & Restore Trigger (1 col) */}
         <div className="space-y-6">
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-semibold text-xs border border-emerald-500/20">
                 3
@@ -402,7 +402,8 @@ export const RestoreView: React.FC<RestoreViewProps> = ({
 
           {/* Itemized file results */}
           <div className="max-h-60 overflow-y-auto space-y-1.5 bg-zinc-950/60 p-3 rounded-xl border border-zinc-800/80">
-            {restoreResult.items.map((item, idx) => (
+            {Array.isArray(restoreResult?.items) &&
+              restoreResult.items.map((item, idx) => (
               <div
                 key={idx}
                 className="flex items-center justify-between p-2 rounded-lg bg-zinc-900/60 text-xs border border-zinc-800/40"

@@ -184,7 +184,7 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
         {/* Left Column: Source & Exclusions (2 cols) */}
         <div className="lg:col-span-2 space-y-6">
           {/* Source Selection Card */}
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl">
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
@@ -256,7 +256,7 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
           </div>
 
           {/* Exclusions Card */}
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center border border-purple-500/20">
@@ -356,7 +356,7 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
 
         {/* Right Column: Encryption & Action (1 col) */}
         <div className="space-y-6">
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">

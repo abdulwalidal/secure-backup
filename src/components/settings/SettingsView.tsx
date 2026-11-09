@@ -84,7 +84,7 @@ export const SettingsView: React.FC<{ onSettingsUpdated?: () => void }> = ({
   return (
     <div className="space-y-6 pb-12">
       {/* Storage Disk Quota Card */}
-      <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+      <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
@@ -141,7 +141,7 @@ export const SettingsView: React.FC<{ onSettingsUpdated?: () => void }> = ({
       </div>
 
       {/* Cloud Integration Provider Cards */}
-      <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl space-y-4">
+      <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl space-y-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
             <Cloud className="w-5 h-5" />
