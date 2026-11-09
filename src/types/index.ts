@@ -129,6 +129,8 @@ export interface DatabaseStats {
   total_snapshots: number;
   total_files: number;
   total_bytes: number;
+  total_files_indexed?: number;
+  total_bytes_backed_up?: number;
 }
 
 export interface BackupOptions {

@@ -95,24 +95,29 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
   };
 
   const filteredSnapshots = useMemo(() => {
+    if (!Array.isArray(snapshots)) return [];
     return snapshots.filter((s) => {
+      const id = s?.id || "";
+      const sourceName = s?.source_name || "";
+      const sourcePath = s?.source_path || "";
       const matchesSearch =
-        s.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.source_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.source_path.toLowerCase().includes(searchQuery.toLowerCase());
+        id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        sourceName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        sourcePath.toLowerCase().includes(searchQuery.toLowerCase());
 
       if (!matchesSearch) return false;
 
-      if (filterType === "encrypted") return s.is_encrypted;
+      if (filterType === "encrypted") return !!s.is_encrypted;
       if (filterType === "unencrypted") return !s.is_encrypted;
       return true;
     });
   }, [snapshots, searchQuery, filterType]);
 
   const filteredFiles = useMemo(() => {
+    if (!Array.isArray(snapshotFiles)) return [];
     if (!fileSearch) return snapshotFiles;
     return snapshotFiles.filter((f) =>
-      f.relative_path.toLowerCase().includes(fileSearch.toLowerCase())
+      (f?.relative_path || "").toLowerCase().includes(fileSearch.toLowerCase())
     );
   }, [snapshotFiles, fileSearch]);
 
