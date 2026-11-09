@@ -15,6 +15,7 @@ import type {
   BackupOptions,
   RestoreOptions,
   CommandResult,
+  UploadSummary,
 } from "../types";
 
 /**
@@ -177,8 +178,8 @@ export const tauriApi = {
   async syncSnapshotToCloud(
     snapshotId: string,
     provider: string
-  ): Promise<unknown> {
-    return invokeCommand<unknown>("sync_snapshot_to_cloud", {
+  ): Promise<UploadSummary> {
+    return invokeCommand<UploadSummary>("sync_snapshot_to_cloud", {
       snapshotId,
       providerType: provider,
     });

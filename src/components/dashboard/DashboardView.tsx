@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Folder,
   FolderOpen,
@@ -14,6 +14,8 @@ import {
   ExternalLink,
   Copy,
   Check,
+  Cloud,
+  Loader2,
 } from "lucide-react";
 import { tauriApi, formatBytes } from "../../services/tauri";
 import type { FolderInfo, BackupResult } from "../../types";
@@ -61,6 +63,30 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupResult, setBackupResult] = useState<BackupResult | null>(null);
   const [hasCopiedId, setHasCopiedId] = useState(false);
+
+  // Cloud sync state
+  const [isGoogleDriveConnected, setIsGoogleDriveConnected] = useState(false);
+  const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
+  const [autoSyncGoogleDrive, setAutoSyncGoogleDrive] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+
+  useEffect(() => {
+    tauriApi
+      .getCloudProviders()
+      .then((providers) => {
+        if (Array.isArray(providers)) {
+          const gdrive = providers.find(
+            (p) => p.provider_type === "google_drive"
+          );
+          if (gdrive && gdrive.is_connected) {
+            setIsGoogleDriveConnected(true);
+            setConnectedEmail(gdrive.account_email || null);
+            setAutoSyncGoogleDrive(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Passphrase strength calculation
   const getPassphraseStrength = (pw: string) => {
@@ -165,6 +191,28 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
       setBackupResult(res);
       setIsBackingUp(false);
       success("Backup Complete", `Snapshot ${res.backup_id} created successfully.`);
+
+      // Auto-upload to Google Drive if enabled & connected
+      if (autoSyncGoogleDrive && isGoogleDriveConnected) {
+        setIsSyncingCloud(true);
+        try {
+          const summary = await tauriApi.syncSnapshotToCloud(
+            res.backup_id,
+            "google_drive"
+          );
+          success(
+            "Uploaded to Google Drive",
+            `Encrypted snapshot synced to Google Drive (${summary.files_uploaded} files, ${formatBytes(
+              summary.total_bytes_uploaded
+            )}).`
+          );
+        } catch (cloudErr: unknown) {
+          error("Google Drive Upload Failed", String(cloudErr));
+        } finally {
+          setIsSyncingCloud(false);
+        }
+      }
+
       if (onBackupCompleted) onBackupCompleted();
     } catch (e: unknown) {
       setIsBackingUp(false);
@@ -469,18 +517,67 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
               </div>
             )}
 
+            {/* Cloud Target: Google Drive */}
+            <div className="p-4 bg-zinc-950/60 border border-zinc-800 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+                    <Cloud className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold text-zinc-200">
+                      Google Drive Sync
+                    </h4>
+                    <p className="text-[11px] text-zinc-400">
+                      {isGoogleDriveConnected
+                        ? `Connected (${connectedEmail || "Google Account"})`
+                        : "Not connected"}
+                    </p>
+                  </div>
+                </div>
+
+                {isGoogleDriveConnected ? (
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoSyncGoogleDrive}
+                      onChange={(e) => setAutoSyncGoogleDrive(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                    Offline
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                {isGoogleDriveConnected
+                  ? autoSyncGoogleDrive
+                    ? "Will automatically upload the encrypted snapshot to Google Drive upon completion."
+                    : "Automatic upload to Google Drive is disabled."
+                  : "Connect your Google Drive in Settings to automatically upload encrypted backups off-site."}
+              </p>
+            </div>
+
             {/* Execute Button */}
             <div className="pt-4">
               <button
                 type="button"
                 onClick={handleStartBackup}
-                disabled={isBackingUp || !selectedPath}
+                disabled={isBackingUp || isSyncingCloud || !selectedPath}
                 className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:from-blue-700 active:to-indigo-700 text-white text-xs font-semibold rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isBackingUp ? (
                   <>
-                    <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
                     <span>Encrypting & Storing...</span>
+                  </>
+                ) : isSyncingCloud ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Uploading to Google Drive...</span>
                   </>
                 ) : (
                   <>
