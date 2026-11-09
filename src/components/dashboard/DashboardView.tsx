@@ -75,13 +75,27 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
       .getCloudProviders()
       .then((providers) => {
         if (Array.isArray(providers)) {
-          const gdrive = providers.find(
-            (p) => p.provider_type === "google_drive"
-          );
-          if (gdrive && gdrive.is_connected) {
+          const gdrive = providers.find((p) => {
+            const type = String(p.provider_type || "")
+              .toLowerCase()
+              .replace(/[^a-z]/g, "");
+            const name = String(p.name || "")
+              .toLowerCase()
+              .replace(/[^a-z]/g, "");
+            return (
+              type === "googledrive" ||
+              name.includes("googledrive") ||
+              name.includes("google")
+            );
+          });
+          if (gdrive && Boolean(gdrive.is_connected)) {
             setIsGoogleDriveConnected(true);
             setConnectedEmail(gdrive.account_email || null);
             setAutoSyncGoogleDrive(true);
+          } else {
+            setIsGoogleDriveConnected(false);
+            setConnectedEmail(null);
+            setAutoSyncGoogleDrive(false);
           }
         }
       })
