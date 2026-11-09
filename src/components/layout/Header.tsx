@@ -32,11 +32,11 @@ export const Header: React.FC<HeaderProps> = ({
             <Database className="w-3.5 h-3.5 text-blue-400" />
             <span className="text-zinc-400">Snapshots:</span>
             <span className="font-semibold text-zinc-200">
-              {dbStats.total_snapshots}
+              {dbStats.total_snapshots ?? 0}
             </span>
             <span className="text-zinc-600">|</span>
             <span className="font-mono text-zinc-300">
-              {formatBytes(dbStats.total_bytes)}
+              {formatBytes(dbStats.total_bytes ?? dbStats.total_bytes_backed_up ?? 0)}
             </span>
           </div>
         )}

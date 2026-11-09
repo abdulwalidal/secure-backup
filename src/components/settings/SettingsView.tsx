@@ -44,10 +44,10 @@ export const SettingsView: React.FC<{ onSettingsUpdated?: () => void }> = ({
 
   const handleConnectGoogleDrive = async () => {
     try {
-      info("Initiating OAuth", "Opening browser for Google Drive authorization...");
-      const authUrl = await tauriApi.connectGoogleDrive();
-      if (authUrl) {
-        window.open(authUrl, "_blank");
+      info("Initiating OAuth", "Opening Google Drive authorization...");
+      const status = await tauriApi.connectGoogleDrive();
+      if (status && status.is_connected) {
+        success("Connected", `Connected to Google Drive (${status.account_email || "Active"}).`);
       }
       await loadData();
       if (onSettingsUpdated) onSettingsUpdated();
@@ -157,7 +157,7 @@ export const SettingsView: React.FC<{ onSettingsUpdated?: () => void }> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          {providers.map((p) => (
+          {Array.isArray(providers) && providers.map((p) => (
             <div
               key={p.provider_type}
               className="p-5 bg-zinc-950/70 border border-zinc-800 rounded-xl flex flex-col justify-between gap-4"

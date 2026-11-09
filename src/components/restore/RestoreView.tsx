@@ -45,15 +45,21 @@ export const RestoreView: React.FC<RestoreViewProps> = ({
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
 
   useEffect(() => {
-    tauriApi.getBackupHistory().then((data) => {
-      setSnapshots(data || []);
-      if (!selectedSnapshotId && data && data.length > 0) {
-        setSelectedSnapshotId(data[0].id);
-      }
-    }).catch((e) => console.error(e));
+    tauriApi
+      .getBackupHistory()
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setSnapshots(list);
+        if (!selectedSnapshotId && list.length > 0) {
+          setSelectedSnapshotId(list[0].id);
+        }
+      })
+      .catch((e) => console.error(e));
   }, []);
 
-  const selectedSnapshot = snapshots.find((s) => s.id === selectedSnapshotId);
+  const selectedSnapshot = Array.isArray(snapshots)
+    ? snapshots.find((s) => s.id === selectedSnapshotId)
+    : undefined;
 
   // Verification handler
   const handleVerifyPassphrase = async () => {
@@ -162,11 +168,12 @@ export const RestoreView: React.FC<RestoreViewProps> = ({
               }}
               className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
             >
-              {snapshots.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.source_name} ({s.is_encrypted ? "AES-256" : "Plaintext"}) — {s.id.substring(0, 8)}... ({formatBytes(s.total_size_bytes)})
-                </option>
-              ))}
+              {Array.isArray(snapshots) &&
+                snapshots.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.source_name} ({s.is_encrypted ? "AES-256" : "Plaintext"}) — {s.id.substring(0, 8)}... ({formatBytes(s.total_size_bytes)})
+                  </option>
+                ))}
             </select>
 
             {selectedSnapshot && (
