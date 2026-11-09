@@ -147,3 +147,12 @@ export interface RestoreOptions {
   source_type: "local" | "google_drive";
   conflict_policy?: "overwrite" | "skip" | "rename";
 }
+
+export interface UploadSummary {
+  snapshot_id: string;
+  provider: string;
+  files_uploaded: number;
+  total_bytes_uploaded: number;
+  vault_folder_id: string;
+  snapshot_folder_id: string;
+}

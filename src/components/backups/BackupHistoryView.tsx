@@ -12,6 +12,8 @@ import {
   RefreshCw,
   X,
   FileCode,
+  Cloud,
+  Loader2,
 } from "lucide-react";
 import { tauriApi, formatBytes, formatDate } from "../../services/tauri";
 import type { DatabaseSnapshot, DatabaseSnapshotFile } from "../../types";
@@ -42,6 +44,34 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
 
   // Copy helper state
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Cloud sync state
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  const handleSyncToCloud = async (snapshot: DatabaseSnapshot) => {
+    setSyncingId(snapshot.id);
+    try {
+      const summary = await tauriApi.syncSnapshotToCloud(
+        snapshot.id,
+        "google_drive"
+      );
+      success(
+        "Synced to Google Drive",
+        `Uploaded ${summary.files_uploaded} files (${formatBytes(
+          summary.total_bytes_uploaded
+        )}) to Google Drive.`
+      );
+    } catch (err: unknown) {
+      error(
+        "Cloud Sync Failed",
+        String(err).includes("not connected")
+          ? "Google Drive is not connected. Go to Settings to connect your account."
+          : String(err)
+      );
+    } finally {
+      setSyncingId(null);
+    }
+  };
 
   const loadSnapshots = async () => {
     setIsLoading(true);
@@ -241,6 +271,20 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
 
               {/* Action buttons */}
               <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                <button
+                  onClick={() => handleSyncToCloud(snapshot)}
+                  disabled={syncingId === snapshot.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl text-xs font-semibold text-indigo-400 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Sync this snapshot to Google Drive"
+                >
+                  {syncingId === snapshot.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  ) : (
+                    <Cloud className="w-3.5 h-3.5 text-indigo-400" />
+                  )}
+                  <span>{syncingId === snapshot.id ? "Syncing..." : "Sync Cloud"}</span>
+                </button>
+
                 <button
                   onClick={() => handleInspect(snapshot)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-xs font-medium text-zinc-200 transition-colors cursor-pointer"
