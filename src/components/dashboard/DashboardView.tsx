@@ -18,7 +18,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { tauriApi, formatBytes } from "../../services/tauri";
-import type { FolderInfo, BackupResult } from "../../types";
+import type { FolderInfo, BackupResult, UploadSummary } from "../../types";
 import { useToast } from "../common/Toast";
 
 const PRESET_EXCLUSIONS = [
@@ -69,6 +69,8 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
   const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
   const [autoSyncGoogleDrive, setAutoSyncGoogleDrive] = useState(false);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudUploadSummary, setCloudUploadSummary] = useState<UploadSummary | null>(null);
+  const [cloudUploadError, setCloudUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     tauriApi
@@ -191,6 +193,8 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
 
     setIsBackingUp(true);
     setBackupResult(null);
+    setCloudUploadSummary(null);
+    setCloudUploadError(null);
 
     const allExclusions = [...selectedPresets, ...customPatterns];
 
@@ -209,11 +213,13 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
       // Auto-upload to Google Drive if enabled & connected
       if (autoSyncGoogleDrive && isGoogleDriveConnected) {
         setIsSyncingCloud(true);
+        setCloudUploadError(null);
         try {
           const summary = await tauriApi.syncSnapshotToCloud(
             res.backup_id,
             "google_drive"
           );
+          setCloudUploadSummary(summary);
           success(
             "Uploaded to Google Drive",
             `Encrypted snapshot synced to Google Drive (${summary.files_uploaded} files, ${formatBytes(
@@ -221,7 +227,9 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
             )}).`
           );
         } catch (cloudErr: unknown) {
-          error("Google Drive Upload Failed", String(cloudErr));
+          const errMsg = String(cloudErr);
+          setCloudUploadError(errMsg);
+          error("Google Drive Upload Failed", errMsg);
         } finally {
           setIsSyncingCloud(false);
         }
@@ -231,6 +239,31 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
     } catch (e: unknown) {
       setIsBackingUp(false);
       error("Backup failed", String(e));
+    }
+  };
+
+  const handleManualSync = async (snapshotId: string) => {
+    setIsSyncingCloud(true);
+    setCloudUploadError(null);
+    try {
+      const summary = await tauriApi.syncSnapshotToCloud(
+        snapshotId,
+        "google_drive"
+      );
+      setCloudUploadSummary(summary);
+      success(
+        "Uploaded to Google Drive",
+        `Encrypted snapshot synced to Google Drive (${summary.files_uploaded} files, ${formatBytes(
+          summary.total_bytes_uploaded
+        )}).`
+      );
+      if (onBackupCompleted) onBackupCompleted();
+    } catch (err: unknown) {
+      const errMsg = String(err);
+      setCloudUploadError(errMsg);
+      error("Google Drive Upload Failed", errMsg);
+    } finally {
+      setIsSyncingCloud(false);
     }
   };
 
@@ -676,6 +709,77 @@ export const DashboardView: React.FC<{ onBackupCompleted?: () => void }> = ({
               </span>
             </div>
           </div>
+
+          {/* Cloud Sync In-Progress Banner */}
+          {isSyncingCloud && (
+            <div className="p-4 bg-indigo-950/40 border border-indigo-500/40 rounded-xl flex items-center justify-between gap-4 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-semibold text-indigo-200">
+                    Uploading Encrypted Snapshot to Google Drive...
+                  </h5>
+                  <p className="text-[11px] text-zinc-400">
+                    Sending {backupResult.manifest.total_files} files ({formatBytes(backupResult.manifest.total_size_bytes)}) to "Secure Backup Vault". This may take a moment depending on network speed.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono text-indigo-300 font-medium shrink-0 hidden sm:inline">
+                Syncing files...
+              </span>
+            </div>
+          )}
+
+          {/* Cloud Sync Success Banner */}
+          {cloudUploadSummary && (
+            <div className="p-4 bg-emerald-950/30 border border-emerald-500/40 rounded-xl flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <Cloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-semibold text-emerald-300">
+                    ✓ Google Drive Cloud Backup Verified
+                  </h5>
+                  <p className="text-[11px] text-zinc-400">
+                    All {cloudUploadSummary.files_uploaded} files ({formatBytes(cloudUploadSummary.total_bytes_uploaded)}) and encrypted manifest are securely stored in your Google Drive vault.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-900/60 border border-emerald-700/60 text-emerald-300 shrink-0">
+                Cloud Vault Synchronized
+              </span>
+            </div>
+          )}
+
+          {/* Cloud Sync Error Banner */}
+          {cloudUploadError && (
+            <div className="p-4 bg-rose-950/30 border border-rose-500/40 rounded-xl flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-semibold text-rose-300">
+                    Google Drive Upload Paused
+                  </h5>
+                  <p className="text-[11px] text-zinc-400">
+                    {cloudUploadError}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleManualSync(backupResult.backup_id)}
+                disabled={isSyncingCloud}
+                className="text-xs px-3 py-1.5 bg-rose-600/30 hover:bg-rose-600/40 border border-rose-500/40 text-rose-200 rounded-lg font-medium cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                Retry Upload
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -113,6 +113,7 @@ export interface DatabaseSnapshot {
   is_encrypted: boolean;
   encryption_algorithm?: string;
   manifest_path?: string;
+  cloud_synced?: boolean;
 }
 
 export interface DatabaseSnapshotFile {

@@ -61,6 +61,7 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
           summary.total_bytes_uploaded
         )}) to Google Drive.`
       );
+      loadSnapshots();
     } catch (err: unknown) {
       error(
         "Cloud Sync Failed",
@@ -245,6 +246,12 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
                     >
                       {snapshot.is_encrypted ? "AES-256 GCM" : "Plaintext"}
                     </span>
+                    {snapshot.cloud_synced && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-indigo-950/60 text-indigo-400 border-indigo-800/60 flex items-center gap-1">
+                        <Cloud className="w-3 h-3 text-indigo-400" />
+                        <span>Google Drive</span>
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-xs text-zinc-400 font-mono truncate max-w-md">
@@ -274,15 +281,35 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
                 <button
                   onClick={() => handleSyncToCloud(snapshot)}
                   disabled={syncingId === snapshot.id}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl text-xs font-semibold text-indigo-400 transition-colors cursor-pointer disabled:opacity-50"
-                  title="Sync this snapshot to Google Drive"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
+                    snapshot.cloud_synced
+                      ? "bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300"
+                      : "bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-400"
+                  }`}
+                  title={
+                    snapshot.cloud_synced
+                      ? "Re-sync this snapshot to Google Drive"
+                      : "Sync this snapshot to Google Drive"
+                  }
                 >
                   {syncingId === snapshot.id ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
                   ) : (
-                    <Cloud className="w-3.5 h-3.5 text-indigo-400" />
+                    <Cloud
+                      className={`w-3.5 h-3.5 ${
+                        snapshot.cloud_synced
+                          ? "text-emerald-400"
+                          : "text-indigo-400"
+                      }`}
+                    />
                   )}
-                  <span>{syncingId === snapshot.id ? "Syncing..." : "Sync Cloud"}</span>
+                  <span>
+                    {syncingId === snapshot.id
+                      ? "Syncing..."
+                      : snapshot.cloud_synced
+                      ? "Re-sync Cloud"
+                      : "Sync Cloud"}
+                  </span>
                 </button>
 
                 <button
