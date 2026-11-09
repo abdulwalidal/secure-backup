@@ -124,7 +124,7 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
   return (
     <div className="space-y-6 pb-12">
       {/* Controls Bar: Search & Filter Pills */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl backdrop-blur-sm shadow-xl">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl">
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-zinc-500" />
           <input
@@ -273,7 +273,7 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
 
       {/* Manifest Inspection Modal */}
       {inspectingSnapshot && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between p-5 border-b border-zinc-800">
               <div className="flex items-center gap-3">
@@ -395,7 +395,7 @@ export const BackupHistoryView: React.FC<BackupHistoryViewProps> = ({
 
       {/* Delete Confirmation Modal */}
       {snapshotToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 space-y-4">
             <div className="flex items-center gap-3 text-rose-400">
               <Trash2 className="w-6 h-6" />

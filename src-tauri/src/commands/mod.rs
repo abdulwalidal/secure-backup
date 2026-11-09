@@ -10,97 +10,121 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 #[tauri::command]
-pub fn inspect_folder(path: String, exclude_common: Option<bool>) -> CommandResult<FolderInfo> {
-    let p = Path::new(&path);
-    if !p.exists() {
-        return CommandResult {
-            success: false,
-            data: None,
-            error: Some("The selected path does not exist.".to_string()),
-        };
-    }
+pub async fn inspect_folder(
+    path: String,
+    exclude_common: Option<bool>,
+) -> CommandResult<FolderInfo> {
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        let p = Path::new(&path);
+        if !p.exists() {
+            return Err("The selected path does not exist.".to_string());
+        }
 
-    if !p.is_dir() {
-        return CommandResult {
-            success: false,
-            data: None,
-            error: Some("The selected path is not a directory.".to_string()),
-        };
-    }
+        if !p.is_dir() {
+            return Err("The selected path is not a directory.".to_string());
+        }
 
-    let folder_name = p
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.clone());
+        let folder_name = p
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
 
-    let exclude = exclude_common.unwrap_or(true);
-    let mut file_count = 0;
-    let mut total_size_bytes = 0;
+        let exclude = exclude_common.unwrap_or(true);
+        let mut file_count = 0;
+        let mut total_size_bytes = 0;
 
-    for entry in WalkDir::new(p)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            if entry.path() == p {
-                return true;
-            }
-            let name = entry.file_name().to_string_lossy();
-            if exclude {
-                if entry.file_type().is_dir() && DEFAULT_EXCLUDED_DIRS.iter().any(|d| *d == name) {
-                    return false;
+        for entry in WalkDir::new(p)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                if entry.path() == p {
+                    return true;
                 }
-                if entry.file_type().is_file() && DEFAULT_EXCLUDED_FILES.iter().any(|f| *f == name)
-                {
-                    return false;
+                let name = entry.file_name().to_string_lossy();
+                if exclude {
+                    if entry.file_type().is_dir()
+                        && DEFAULT_EXCLUDED_DIRS.iter().any(|d| *d == name)
+                    {
+                        return false;
+                    }
+                    if entry.file_type().is_file()
+                        && DEFAULT_EXCLUDED_FILES.iter().any(|f| *f == name)
+                    {
+                        return false;
+                    }
                 }
-            }
-            true
-        })
-        .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_file() {
-            file_count += 1;
-            if let Ok(meta) = entry.metadata() {
-                total_size_bytes += meta.len();
+                true
+            })
+            .filter_map(|e| e.ok())
+        {
+            if entry.file_type().is_file() {
+                file_count += 1;
+                if let Ok(meta) = entry.metadata() {
+                    total_size_bytes += meta.len();
+                }
             }
         }
-    }
 
-    CommandResult {
-        success: true,
-        data: Some(FolderInfo {
+        Ok(FolderInfo {
             path,
             name: folder_name,
             exists: true,
             is_dir: true,
             file_count,
             total_size_bytes,
-        }),
-        error: None,
+        })
+    });
+
+    match join_handle.await {
+        Ok(Ok(info)) => CommandResult {
+            success: true,
+            data: Some(info),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Inspect task failed: {}", join_err)),
+        },
     }
 }
 
 #[tauri::command]
-pub fn start_local_backup(
+pub async fn start_local_backup(
     source_path: String,
     passphrase: Option<String>,
     exclude_common: Option<bool>,
+    custom_exclusions: Option<Vec<String>>,
 ) -> CommandResult<BackupResult> {
-    let pass_ref = passphrase.as_deref();
-    let scan_opts = ScanOptions {
-        exclude_common: exclude_common.unwrap_or(true),
-        custom_exclusions: Vec::new(),
-    };
-    match create_local_backup_with_options(&source_path, pass_ref, Some(&scan_opts)) {
-        Ok(result) => CommandResult {
+    let join_handle = tauri::async_runtime::spawn_blocking(move || {
+        let pass_ref = passphrase.as_deref();
+        let scan_opts = ScanOptions {
+            exclude_common: exclude_common.unwrap_or(true),
+            custom_exclusions: custom_exclusions.unwrap_or_default(),
+        };
+        create_local_backup_with_options(&source_path, pass_ref, Some(&scan_opts))
+    });
+
+    match join_handle.await {
+        Ok(Ok(result)) => CommandResult {
             success: true,
             data: Some(result),
             error: None,
         },
-        Err(err) => CommandResult {
+        Ok(Err(err)) => CommandResult {
             success: false,
             data: None,
             error: Some(format!("Backup failed: {}", err)),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Backup task failed: {}", join_err)),
         },
     }
 }
@@ -599,54 +623,58 @@ pub async fn restore_snapshot(
 }
 
 #[tauri::command]
-pub fn get_storage_stats() -> CommandResult<StorageStats> {
-    let backup_path = crate::backup::get_backups_dir();
+pub async fn get_storage_stats() -> CommandResult<StorageStats> {
+    let join_handle = tauri::async_runtime::spawn_blocking(|| {
+        let backup_path = crate::backup::get_backups_dir();
 
-    if let Err(error) = fs::create_dir_all(&backup_path) {
-        return CommandResult {
-            success: false,
-            data: None,
-            error: Some(format!("Failed to create backup directory: {}", error)),
-        };
-    }
-    let storage_root = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        if let Err(error) = fs::create_dir_all(&backup_path) {
+            return Err(format!("Failed to create backup directory: {}", error));
+        }
+        let storage_root = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
 
-    let used_space_bytes = match get_backups_size() {
-        Ok(size) => size,
-        Err(error) => {
-            return CommandResult {
-                success: false,
-                data: None,
-                error: Some(format!(
+        let used_space_bytes = match get_backups_size() {
+            Ok(size) => size,
+            Err(error) => {
+                return Err(format!(
                     "Failed to calculate backup storage usage: {}",
                     error
-                )),
-            };
-        }
-    };
+                ));
+            }
+        };
 
-    let free_space_bytes = match fs2::available_space(&storage_root) {
-        Ok(space) => space,
-        Err(error) => {
-            return CommandResult {
-                success: false,
-                data: None,
-                error: Some(format!(
+        let free_space_bytes = match fs2::available_space(&storage_root) {
+            Ok(space) => space,
+            Err(error) => {
+                return Err(format!(
                     "Failed to calculate available disk space: {}",
                     error
-                )),
-            };
-        }
-    };
+                ));
+            }
+        };
 
-    CommandResult {
-        success: true,
-        data: Some(StorageStats {
+        Ok(StorageStats {
             backup_path: backup_path.to_string_lossy().to_string(),
             free_space_bytes,
             used_space_bytes,
-        }),
-        error: None,
+        })
+    });
+
+    match join_handle.await {
+        Ok(Ok(stats)) => CommandResult {
+            success: true,
+            data: Some(stats),
+            error: None,
+        },
+        Ok(Err(err)) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(err),
+        },
+        Err(join_err) => CommandResult {
+            success: false,
+            data: None,
+            error: Some(format!("Storage stats task failed: {}", join_err)),
+        },
     }
 }
 

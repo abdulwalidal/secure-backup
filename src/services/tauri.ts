@@ -68,6 +68,7 @@ export const tauriApi = {
       sourcePath: options.source_path,
       passphrase: options.passphrase || null,
       excludeCommon: options.enable_default_exclusions ?? true,
+      customExclusions: options.exclude_patterns || [],
     });
   },
 
