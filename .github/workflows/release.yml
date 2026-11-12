@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release-linux:
+    name: "Build Linux Packages (.deb & .AppImage)"
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Tauri Desktop Application (.deb and .AppImage)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Secure Backup ${{ github.ref_name }}'
+          releaseBody: |
+            ## Secure Backup ${{ github.ref_name }}
+
+            Official zero-knowledge desktop backup release engineered in Rust and Tauri 2.
+
+            ### Included Linux Packages
+            - **`.deb` Package:** Debian, Ubuntu, Linux Mint, Pop!_OS (Install with `sudo apt install ./secure-backup_*.deb`)
+            - **`.AppImage` Package:** Universal standalone binary for all 64-bit Linux distributions (Run with `chmod +x secure-backup_*.AppImage && ./secure-backup_*.AppImage`)
+
+            ### Cryptographic Primitives
+            - **Symmetric Cipher:** AES-256-GCM authenticated encryption with 16-byte AEAD verification tag
+            - **Key Derivation:** Argon2id with 19 MiB RAM overhead and fresh OS CSPRNG salts
+            - **Cloud Vault Sync:** Direct Google Drive OAuth 2.0 PKCE with automated retry backoff
+          releaseDraft: false
+          prerelease: false
